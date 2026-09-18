@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: gmgn-wallet-monitor
+    runtime: node
+    plan: free
+    region: singapore # 也可选 oregon / frankfurt / ohio
+    buildCommand: npm install && npm run build
+    startCommand: node server/server.js
+    healthCheckPath: /api/status
+    envVars:
+      - key: NODE_VERSION
+        value: 22.14.0
+      - key: PORT
+        value: 3000
+      - key: AUTO_BUY_AMOUNT
+        value: 10
+      - key: AUTO_BUY_ENABLED
+        value: true
+      - key: MONITOR_INTERVAL_MS
+        value: 8000
+      - key: PRICE_UPDATE_INTERVAL_MS
+        value: 5000
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: GMGN_API_KEY
+        sync: false
