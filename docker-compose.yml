@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  gmgn-monitor:
+    build: .
+    container_name: gmgn-wallet-monitor
+    restart: always
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - PORT=3000
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+      - GMGN_API_KEY=${GMGN_API_KEY:-}
+      - AUTO_BUY_AMOUNT=10
+      - AUTO_BUY_ENABLED=true
