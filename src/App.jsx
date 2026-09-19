@@ -65,6 +65,12 @@ export default function App() {
       setIsMonitoring(isMonitoring);
     });
 
+    socket.on('data:reset', () => {
+      setAlerts([]);
+      setPositions([]);
+      setSummary(null);
+    });
+
     // REST API 初始拉取
     fetchWallets();
     fetchSettings();
@@ -198,6 +204,22 @@ export default function App() {
     }
   };
 
+  // 清空历史数据（持仓、警报与策略记录），从新开始
+  const handleClearHistory = async () => {
+    if (!window.confirm('⚠️ 警告：确定要清空所有历史买入信号与模拟持仓记录并重新开始吗？\n该操作将清除全部盈亏记录，系统将从零开始记录。')) {
+      return;
+    }
+    try {
+      const res = await axios.post('/api/history/clear');
+      setAlerts([]);
+      setPositions([]);
+      setSummary(null);
+      alert(res.data?.message || '历史数据已清空，系统已重新开始！');
+    } catch (err) {
+      alert('清空历史数据失败: ' + (err.response?.data?.error || err.message));
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#0a0d14] text-slate-100 flex flex-col">
       {/* 顶部导航 */}
@@ -206,6 +228,7 @@ export default function App() {
         onToggleMonitoring={handleToggleMonitoring}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onTriggerTestBuy={handleTriggerTestBuy}
+        onClearHistory={handleClearHistory}
         telegramConfigured={telegramConfigured}
         isTestingBuy={isTestingBuy}
       />
@@ -294,6 +317,7 @@ export default function App() {
             positions={positions}
             onClosePosition={handleClosePosition}
             onManualBuy={handleManualBuy}
+            onClearHistory={handleClearHistory}
             summary={summary}
           />
         )}

@@ -1,6 +1,6 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
-import { Flame, Users, DollarSign, ArrowUpRight, ArrowDownRight, ExternalLink, Copy, Check, RefreshCw, Zap, Award } from 'lucide-react';
+import { Flame, Users, DollarSign, ArrowUpRight, ArrowDownRight, ExternalLink, Copy, Check, RefreshCw, Zap, Award, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 
 function formatMC(val) {
   if (!val || isNaN(val)) return '$0';
@@ -16,6 +16,10 @@ export default function GoldenDogRadar({ onManualBuy }) {
   const [isLoading, setIsLoading] = useState(false);
   const [copiedCA, setCopiedCA] = useState(null);
   const [buyingCA, setBuyingCA] = useState(null);
+
+  // 表格列排序状态
+  const [colSortField, setColSortField] = useState('rank');
+  const [colSortDirection, setColSortDirection] = useState('asc');
 
   const fetchGoldenDogs = async () => {
     setIsLoading(true);
@@ -36,6 +40,57 @@ export default function GoldenDogRadar({ onManualBuy }) {
     const timer = setInterval(fetchGoldenDogs, 10000); // 10秒自动刷新
     return () => clearInterval(timer);
   }, [sortBy]);
+
+  const handleColSort = (field) => {
+    if (colSortField === field) {
+      setColSortDirection(prev => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setColSortField(field);
+      setColSortDirection(['buyers', 'volume', 'marketCap', 'priceChangePercent'].includes(field) ? 'desc' : 'asc');
+    }
+  };
+
+  const renderSortIcon = (field) => {
+    if (colSortField !== field) {
+      return <ArrowUpDown className="h-3 w-3 text-slate-600 group-hover:text-slate-400 inline ml-1 transition" />;
+    }
+    return colSortDirection === 'asc' ? (
+      <ArrowUp className="h-3 w-3 text-amber-400 inline ml-1" />
+    ) : (
+      <ArrowDown className="h-3 w-3 text-amber-400 inline ml-1" />
+    );
+  };
+
+  const sortedDogs = useMemo(() => {
+    if (!dogs || dogs.length === 0) return [];
+    if (colSortField === 'rank') {
+      return colSortDirection === 'asc' ? dogs : [...dogs].reverse();
+    }
+    return [...dogs].sort((a, b) => {
+      let valA = 0;
+      let valB = 0;
+      if (colSortField === 'buyers') {
+        valA = a.top100BuyerCount > 0 ? a.top100BuyerCount : (a.gmgnSmartCount || 0);
+        valB = b.top100BuyerCount > 0 ? b.top100BuyerCount : (b.gmgnSmartCount || 0);
+      } else if (colSortField === 'volume') {
+        valA = Number(a.totalSmartBuyUsd) || 0;
+        valB = Number(b.totalSmartBuyUsd) || 0;
+      } else if (colSortField === 'marketCap') {
+        valA = Number(a.marketCap) || 0;
+        valB = Number(b.marketCap) || 0;
+      } else if (colSortField === 'priceChangePercent') {
+        valA = Number(a.priceChangePercent) || 0;
+        valB = Number(b.priceChangePercent) || 0;
+      } else if (colSortField === 'symbol') {
+        valA = String(a.symbol || '').toLowerCase();
+        valB = String(b.symbol || '').toLowerCase();
+      }
+
+      if (valA < valB) return colSortDirection === 'asc' ? -1 : 1;
+      if (valA > valB) return colSortDirection === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }, [dogs, colSortField, colSortDirection]);
 
   const copyToClipboard = (text, id) => {
     navigator.clipboard.writeText(text);
@@ -144,20 +199,56 @@ export default function GoldenDogRadar({ onManualBuy }) {
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
-              <thead className="bg-dark-800/60 text-slate-400 uppercase tracking-wider font-mono border-b border-slate-800/80">
+              <thead className="bg-dark-800/60 text-slate-400 uppercase tracking-wider font-mono border-b border-slate-800/80 select-none">
                 <tr>
-                  <th className="py-3.5 px-4 text-center w-12">#</th>
-                  <th className="py-3.5 px-4">代币信息 / 合约 CA</th>
-                  <th className="py-3.5 px-4 text-amber-400 font-semibold">👥 聪明钱买入人数</th>
-                  <th className="py-3.5 px-4 text-emerald-400 font-semibold">💰 聪明钱买入总额</th>
-                  <th className="py-3.5 px-4">当前 GMGN 市值 (MC)</th>
-                  <th className="py-3.5 px-4">1h 涨跌幅</th>
-                  <th className="py-3.5 px-4">买入聪明钱巨鲸</th>
-                  <th className="py-3.5 px-4 text-right">跟单操作</th>
+                  <th
+                    onClick={() => handleColSort('rank')}
+                    className="py-3.5 px-4 text-center w-12 cursor-pointer group hover:text-white transition whitespace-nowrap"
+                  >
+                    <span>#</span>
+                    {renderSortIcon('rank')}
+                  </th>
+                  <th
+                    onClick={() => handleColSort('symbol')}
+                    className="py-3.5 px-4 cursor-pointer group hover:text-white transition whitespace-nowrap"
+                  >
+                    <span>代币信息 / 合约 CA</span>
+                    {renderSortIcon('symbol')}
+                  </th>
+                  <th
+                    onClick={() => handleColSort('buyers')}
+                    className="py-3.5 px-4 text-amber-400 font-semibold cursor-pointer group hover:text-amber-300 transition whitespace-nowrap"
+                  >
+                    <span>👥 聪明钱买入人数</span>
+                    {renderSortIcon('buyers')}
+                  </th>
+                  <th
+                    onClick={() => handleColSort('volume')}
+                    className="py-3.5 px-4 text-emerald-400 font-semibold cursor-pointer group hover:text-emerald-300 transition whitespace-nowrap"
+                  >
+                    <span>💰 聪明钱买入总额</span>
+                    {renderSortIcon('volume')}
+                  </th>
+                  <th
+                    onClick={() => handleColSort('marketCap')}
+                    className="py-3.5 px-4 cursor-pointer group hover:text-white transition whitespace-nowrap"
+                  >
+                    <span>当前 GMGN 市值 (MC)</span>
+                    {renderSortIcon('marketCap')}
+                  </th>
+                  <th
+                    onClick={() => handleColSort('priceChangePercent')}
+                    className="py-3.5 px-4 cursor-pointer group hover:text-white transition whitespace-nowrap"
+                  >
+                    <span>1h 涨跌幅</span>
+                    {renderSortIcon('priceChangePercent')}
+                  </th>
+                  <th className="py-3.5 px-4 whitespace-nowrap">买入聪明钱巨鲸</th>
+                  <th className="py-3.5 px-4 text-right whitespace-nowrap">跟单操作</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
-                {dogs.map((item, index) => {
+                {sortedDogs.map((item, index) => {
                   const shortCA = item.address ? `${item.address.slice(0, 6)}...${item.address.slice(-4)}` : '';
                   const isCopied = copiedCA === item.address;
                   const isPositive = (item.priceChangePercent || 0) >= 0;

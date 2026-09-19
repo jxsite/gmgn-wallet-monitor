@@ -19,7 +19,8 @@ import {
   setSetting,
   updatePositionPrice,
   updatePositionStrategy,
-  closePosition
+  closePosition,
+  clearHistoricalData
 } from './db/database.js';
 import { tradingSimulator } from './services/tradingSimulator.js';
 import { monitorService } from './services/monitorService.js';
@@ -190,6 +191,28 @@ app.post('/api/test/buy', async (req, res) => {
   const { tokenAddress } = req.body;
   const result = await monitorService.triggerTestSignal(tokenAddress);
   res.json(result);
+});
+
+// 清空历史数据（持仓、警报与策略记录），从新开始
+app.post('/api/history/clear', (req, res) => {
+  clearHistoricalData();
+  tradingSimulator.clear();
+  monitorService.clear();
+
+  // 广播重置事件到所有前端连接
+  io.emit('data:reset');
+  io.emit('positions:update', []);
+  io.emit('initial:data', {
+    alerts: [],
+    positions: [],
+    summary: tradingSimulator.getSummary(),
+    isMonitoring: monitorService.isRunning,
+    telegramConfigured: telegramService.isConfigured()
+  });
+  tradingSimulator.broadcastSummary();
+
+  console.log('[Server] 🧹 前端与数据库历史数据已清空，系统已重新从零开始');
+  res.json({ success: true, message: '历史模拟交易与警报数据已全部清空，系统已重新从零开始！' });
 });
 
 // 模拟策略触发测试 (用于快速测试 3倍止盈卖1.5倍、多阶梯里程碑、跌50%清仓)

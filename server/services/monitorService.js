@@ -13,6 +13,23 @@ import { tradingSimulator } from './tradingSimulator.js';
 import { goldenDogService } from './goldenDogService.js';
 import { walletTracerService } from './walletTracerService.js';
 
+// 过滤非 Meme 的基础结算资产与主流质押/封装资产，防止开仓比特币、以太坊、SOL 本币或稳定币
+const EXCLUDED_BASE_TOKENS = new Set([
+  'So11111111111111111111111111111111111111112', // WSOL
+  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
+  'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT
+  '3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh', // WBTC (Wormhole)
+  '7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs', // WETH (Wormhole)
+  'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So', // mSOL
+  'bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1', // bSOL
+  'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn', // JitoSOL
+  '7dHbWXmci3dT8UFYWYZweBLXgycu7Y3iL6trKn1Y7ARj', // stSOL
+]);
+
+const EXCLUDED_SYMBOLS = new Set([
+  'SOL', 'WSOL', 'USDC', 'USDT', 'WBTC', 'BTC', 'ETH', 'WETH', 'MSOL', 'BSOL', 'JITOSOL'
+]);
+
 export class MonitorService {
   constructor() {
     this.io = null;
@@ -25,6 +42,11 @@ export class MonitorService {
 
   setSocketServer(io) {
     this.io = io;
+  }
+
+  clear() {
+    this.processedTxHashes.clear();
+    console.log('[Monitor] 已清空已处理交易哈希集合');
   }
 
   start(intervalMs = 12000) {
@@ -71,6 +93,12 @@ export class MonitorService {
             const tokenAddr = t.base_address || t.token_address;
             if (!tokenAddr) continue;
 
+            const tokenSymbol = (t.base_token?.symbol || t.token_symbol || 'TOKEN').replace(/^\$/, '');
+            // 过滤 WSOL、USDC、USDT、WBTC 等基础资产
+            if (EXCLUDED_BASE_TOKENS.has(tokenAddr) || EXCLUDED_SYMBOLS.has(tokenSymbol.toUpperCase())) {
+              continue;
+            }
+
             const twitterUser = t.maker_info?.twitter_username || '';
             const twitterName = t.maker_info?.twitter_name || '';
             const customCheck = isCustomWallet(walletAddr);
@@ -96,7 +124,7 @@ export class MonitorService {
               wallet_address: walletAddr,
               wallet_label: walletLabel,
               token_address: tokenAddr,
-              token_symbol: (t.base_token?.symbol || t.token_symbol || 'TOKEN').replace(/^\$/, ''),
+              token_symbol: tokenSymbol,
               token_name: t.base_token?.name || t.token_name || t.base_token?.symbol || 'Token',
               side: 'BUY',
               amount_usd: parseFloat(t.amount_usd || t.buy_cost_usd || 1000),
@@ -123,12 +151,17 @@ export class MonitorService {
                 const tokenAddr = act.token_address || act.base_address;
                 if (!tokenAddr) continue;
 
+                const tokenSymbol = (act.token_symbol || act.symbol || 'TOKEN').replace(/^\$/, '');
+                if (EXCLUDED_BASE_TOKENS.has(tokenAddr) || EXCLUDED_SYMBOLS.has(tokenSymbol.toUpperCase())) {
+                  continue;
+                }
+
                 detectedTrades.push({
                   tx_hash: act.tx_hash || act.transaction_hash || `${targetWallet.address}_${tokenAddr}_${act.timestamp || Date.now()}`,
                   wallet_address: targetWallet.address,
                   wallet_label: targetWallet.label,
                   token_address: tokenAddr,
-                  token_symbol: (act.token_symbol || act.symbol || 'TOKEN').replace(/^\$/, ''),
+                  token_symbol: tokenSymbol,
                   token_name: act.token_name || act.name || 'Token',
                   side: 'BUY',
                   amount_usd: parseFloat(act.amount_usd || 1000),

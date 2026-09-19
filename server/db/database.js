@@ -386,4 +386,11 @@ export function getRecentAlerts(limit = 50) {
   return db.prepare('SELECT * FROM alerts ORDER BY created_at DESC LIMIT ?').all(limit);
 }
 
+// 清空所有历史模拟持仓与买入警报数据，重新从零开始
+export function clearHistoricalData() {
+  db.prepare('DELETE FROM positions').run();
+  db.prepare('DELETE FROM alerts').run();
+  console.log('[DB] 🗑️ 历史模拟持仓与警报数据已全部清空，系统重置为全新状态');
+}
+
 export { db };

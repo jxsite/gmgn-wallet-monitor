@@ -109,6 +109,14 @@ export class TradingSimulator {
     return newPosition;
   }
 
+  clear() {
+    this.isUpdating = false;
+    if (this.io) {
+      this.io.emit('positions:update', []);
+      this.broadcastSummary();
+    }
+  }
+
   // 轮询更新持仓行情并执行：【翻3倍卖1.5倍】、【倍数里程碑提醒】、【跌50%直接清仓】
   async updateOpenPositions() {
     if (this.isUpdating) return;
@@ -134,13 +142,42 @@ export class TradingSimulator {
         const marketData = marketDataMap.get(pos.token_address);
         if (!marketData) continue;
 
-        const currentMc = marketData.marketCap || marketData.fdv;
-        const currentPrice = marketData.priceUsd;
-        if (!currentMc) continue;
+        const currentMc = marketData.marketCap || marketData.fdv || 0;
+        const currentPrice = marketData.priceUsd || marketData.price || 0;
+        if (!currentMc && !currentPrice) continue;
 
         const entryMc = pos.entry_mc || 1;
-        const multiplier = currentMc / entryMc;
-        const pnlRatio = parseFloat((((currentMc - entryMc) / entryMc) * 100).toFixed(2));
+        const entryPrice = pos.entry_price || 0;
+
+        // 计算当前收益倍数：优先以代币单价比例为准（避免因代币铸造销毁或流动性池污染导致虚高）
+        let multiplier = 1.0;
+        if (entryPrice > 0 && currentPrice > 0) {
+          multiplier = currentPrice / entryPrice;
+        } else if (entryMc > 0 && currentMc > 0) {
+          multiplier = currentMc / entryMc;
+        }
+
+        // 极端异常保护：如果倍数突变超过 50000x（通常是流动性池被抽干或脏池子污染），进行平滑保护
+        if (multiplier > 50000 && pos.entry_price > 10) {
+          console.warn(`[Simulator] ⚠️ 捕获到代币异常价格突变，忽略该次异常波动: ${pos.token_symbol}`);
+          continue;
+        }
+
+        const pnlRatio = parseFloat(((multiplier - 1) * 100).toFixed(2));
+
+        // 数据自愈修复：如果当前真实倍数远低于 2.5x，但数据库错误记录了已3倍止盈（测试污染），自动修正重置
+        let hasTakenProfit3x = pos.has_taken_profit_3x || 0;
+        let realizedProfit = pos.realized_profit || 0.0;
+        if (multiplier < 2.5 && hasTakenProfit3x === 1) {
+          console.warn(`[Simulator] ⚠️ 发现持仓 $${pos.token_symbol} 存在历史异常止盈标记 (当前仅 ${multiplier.toFixed(2)}x)，自动修正重置`);
+          hasTakenProfit3x = 0;
+          realizedProfit = 0.0;
+          updatePositionStrategy(pos.id, {
+            has_taken_profit_3x: 0,
+            realized_profit: 0.0,
+            reached_milestones: '[]'
+          });
+        }
 
         // ----------------------------------------------------
         // 策略规则 1: 如果跌 50% 就直接清仓 (止损清仓)
@@ -170,9 +207,6 @@ export class TradingSimulator {
         // ----------------------------------------------------
         // 策略规则 2: 翻三倍卖 1.5 倍 (3x 止盈收回本金加纯利，剩余零成本继续持有)
         // ----------------------------------------------------
-        let hasTakenProfit3x = pos.has_taken_profit_3x || 0;
-        let realizedProfit = pos.realized_profit || 0.0;
-
         if (multiplier >= 3.0 && hasTakenProfit3x === 0) {
           hasTakenProfit3x = 1;
           realizedProfit = realizedProfit + 15.0; // 卖出 1.5 倍本金 (收回 15U)

@@ -1,11 +1,12 @@
 import React from 'react';
-import { Activity, Bell, Settings, Play, Pause, Zap, Send } from 'lucide-react';
+import { Activity, Bell, Settings, Play, Pause, Zap, Send, Trash2 } from 'lucide-react';
 
 export default function Navbar({
   isMonitoring,
   onToggleMonitoring,
   onOpenSettings,
   onTriggerTestBuy,
+  onClearHistory,
   telegramConfigured,
   isTestingBuy
 }) {
@@ -73,6 +74,16 @@ export default function Navbar({
                 <span>已暂停</span>
               </>
             )}
+          </button>
+
+          {/* Clear History Button */}
+          <button
+            onClick={onClearHistory}
+            className="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/30 transition"
+            title="清空所有历史模拟交易与警报数据，重新从零开始"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            <span className="hidden md:inline">清空历史</span>
           </button>
 
           {/* Settings Button */}

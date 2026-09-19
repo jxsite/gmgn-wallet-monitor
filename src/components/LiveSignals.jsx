@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { ExternalLink, Copy, Check, TrendingUp, Wallet, ShieldCheck, Star, Link as LinkIcon } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { ExternalLink, Copy, Check, TrendingUp, Wallet, ShieldCheck, Star, Link as LinkIcon, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 
 function formatMC(val) {
   if (!val || isNaN(val)) return '$0';
@@ -19,11 +19,56 @@ function formatPrice(price) {
 
 export default function LiveSignals({ alerts }) {
   const [copiedCA, setCopiedCA] = useState(null);
+  const [sortField, setSortField] = useState('created_at');
+  const [sortDirection, setSortDirection] = useState('desc');
 
   const copyToClipboard = (text, id) => {
     navigator.clipboard.writeText(text);
     setCopiedCA(id);
     setTimeout(() => setCopiedCA(null), 2000);
+  };
+
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection(prev => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDirection('desc');
+    }
+  };
+
+  const sortedAlerts = useMemo(() => {
+    if (!alerts || alerts.length === 0) return [];
+    return [...alerts].sort((a, b) => {
+      let valA = a[sortField];
+      let valB = b[sortField];
+
+      if (sortField === 'created_at') {
+        valA = new Date(a.created_at || 0).getTime();
+        valB = new Date(b.created_at || 0).getTime();
+      } else if (['amount_usd', 'price_usd', 'mc_at_event'].includes(sortField)) {
+        valA = Number(valA) || 0;
+        valB = Number(valB) || 0;
+      } else {
+        valA = String(valA || '').toLowerCase();
+        valB = String(valB || '').toLowerCase();
+      }
+
+      if (valA < valB) return sortDirection === 'asc' ? -1 : 1;
+      if (valA > valB) return sortDirection === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }, [alerts, sortField, sortDirection]);
+
+  const renderSortIcon = (field) => {
+    if (sortField !== field) {
+      return <ArrowUpDown className="h-3 w-3 text-slate-600 group-hover:text-slate-400 inline ml-1 transition" />;
+    }
+    return sortDirection === 'asc' ? (
+      <ArrowUp className="h-3 w-3 text-brand-cyan inline ml-1" />
+    ) : (
+      <ArrowDown className="h-3 w-3 text-brand-cyan inline ml-1" />
+    );
   };
 
   if (!alerts || alerts.length === 0) {
@@ -42,7 +87,7 @@ export default function LiveSignals({ alerts }) {
 
   return (
     <div className="glass-panel rounded-2xl border border-slate-800/80 overflow-hidden">
-      <div className="px-6 py-4 border-b border-slate-800/80 flex items-center justify-between">
+      <div className="px-6 py-4 border-b border-slate-800/80 flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center space-x-2">
           <span className="h-2.5 w-2.5 rounded-full bg-brand-green animate-pulse"></span>
           <h3 className="text-sm font-semibold text-white">实时买入信号流 (Live Feed)</h3>
@@ -56,21 +101,70 @@ export default function LiveSignals({ alerts }) {
 
       <div className="overflow-x-auto">
         <table className="w-full text-left text-xs">
-          <thead className="bg-dark-800/60 text-slate-400 uppercase tracking-wider font-mono border-b border-slate-800/80">
+          <thead className="bg-dark-800/60 text-slate-400 uppercase tracking-wider font-mono border-b border-slate-800/80 select-none">
             <tr>
-              <th className="py-3 px-4">时间</th>
-              <th className="py-3 px-4">买入钱包 / 标签</th>
-              <th className="py-3 px-4">推特 / X</th>
-              <th className="py-3 px-4">代币 / CA</th>
-              <th className="py-3 px-4">实时单价 (Price)</th>
-              <th className="py-3 px-4">买入金额</th>
-              <th className="py-3 px-4">发生市值 (MC)</th>
-              <th className="py-3 px-4">10U 跟单状态</th>
-              <th className="py-3 px-4 text-right">GMGN 直达走势</th>
+              {/* 时间排序 */}
+              <th
+                onClick={() => handleSort('created_at')}
+                className="py-3 px-4 cursor-pointer group hover:text-white transition whitespace-nowrap"
+              >
+                <span>时间</span>
+                {renderSortIcon('created_at')}
+              </th>
+
+              {/* 钱包 */}
+              <th
+                onClick={() => handleSort('wallet_label')}
+                className="py-3 px-4 cursor-pointer group hover:text-white transition whitespace-nowrap"
+              >
+                <span>买入钱包 / 标签</span>
+                {renderSortIcon('wallet_label')}
+              </th>
+
+              <th className="py-3 px-4 whitespace-nowrap">推特 / X</th>
+
+              {/* 代币 */}
+              <th
+                onClick={() => handleSort('token_symbol')}
+                className="py-3 px-4 cursor-pointer group hover:text-white transition whitespace-nowrap"
+              >
+                <span>代币 / CA</span>
+                {renderSortIcon('token_symbol')}
+              </th>
+
+              {/* 单价排序 */}
+              <th
+                onClick={() => handleSort('price_usd')}
+                className="py-3 px-4 cursor-pointer group hover:text-white transition whitespace-nowrap"
+              >
+                <span>实时单价 (Price)</span>
+                {renderSortIcon('price_usd')}
+              </th>
+
+              {/* 买入金额排序 */}
+              <th
+                onClick={() => handleSort('amount_usd')}
+                className="py-3 px-4 cursor-pointer group hover:text-white transition whitespace-nowrap"
+              >
+                <span>买入金额</span>
+                {renderSortIcon('amount_usd')}
+              </th>
+
+              {/* 发生市值排序 */}
+              <th
+                onClick={() => handleSort('mc_at_event')}
+                className="py-3 px-4 cursor-pointer group hover:text-white transition whitespace-nowrap"
+              >
+                <span>发生市值 (MC)</span>
+                {renderSortIcon('mc_at_event')}
+              </th>
+
+              <th className="py-3 px-4 whitespace-nowrap">10U 跟单状态</th>
+              <th className="py-3 px-4 text-right whitespace-nowrap">GMGN 直达走势</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800/60">
-            {alerts.map((item, idx) => {
+            {sortedAlerts.map((item, idx) => {
               const shortWallet = item.wallet_address ? `${item.wallet_address.slice(0, 4)}...${item.wallet_address.slice(-4)}` : '';
               const shortCA = item.token_address ? `${item.token_address.slice(0, 6)}...${item.token_address.slice(-4)}` : '';
               const isCopied = copiedCA === (item.id || idx);

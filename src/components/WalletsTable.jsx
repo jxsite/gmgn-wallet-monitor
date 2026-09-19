@@ -1,10 +1,14 @@
-import React, { useState } from 'react';
-import { ExternalLink, Copy, Check, Search, Plus, Award, Star, Link as LinkIcon, Users } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { ExternalLink, Copy, Check, Search, Plus, Award, Star, Link as LinkIcon, Users, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 
 export default function WalletsTable({ wallets, onToggleStatus, onAddWallet }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('ALL'); // ALL, CUSTOM, ASSOCIATED, TOP100
   const [copiedAddr, setCopiedAddr] = useState(null);
+
+  // 排序状态 (默认按排名升序)
+  const [sortField, setSortField] = useState('rank');
+  const [sortDirection, setSortDirection] = useState('asc');
 
   // 添加自定义钱包状态
   const [showAddModal, setShowAddModal] = useState(false);
@@ -17,6 +21,27 @@ export default function WalletsTable({ wallets, onToggleStatus, onAddWallet }) {
     navigator.clipboard.writeText(text);
     setCopiedAddr(id);
     setTimeout(() => setCopiedAddr(null), 2000);
+  };
+
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection(prev => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      // 胜率和获利默认降序，其余默认升序
+      setSortDirection(['win_rate', 'profit_7d'].includes(field) ? 'desc' : 'asc');
+    }
+  };
+
+  const renderSortIcon = (field) => {
+    if (sortField !== field) {
+      return <ArrowUpDown className="h-3 w-3 text-slate-600 group-hover:text-slate-400 inline ml-1 transition" />;
+    }
+    return sortDirection === 'asc' ? (
+      <ArrowUp className="h-3 w-3 text-brand-cyan inline ml-1" />
+    ) : (
+      <ArrowDown className="h-3 w-3 text-brand-cyan inline ml-1" />
+    );
   };
 
   const handleAddSubmit = (e) => {
@@ -40,19 +65,51 @@ export default function WalletsTable({ wallets, onToggleStatus, onAddWallet }) {
   const associatedCount = (wallets || []).filter(w => w.is_associated === 1).length;
   const top100Count = (wallets || []).filter(w => !w.is_custom && !w.is_associated).length;
 
-  const filteredWallets = (wallets || []).filter((w) => {
-    const matchSearch =
-      w.address?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      w.label?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (w.twitter_username && w.twitter_username.toLowerCase().includes(searchTerm.toLowerCase()));
+  const filteredWallets = useMemo(() => {
+    const list = (wallets || []).filter((w) => {
+      const matchSearch =
+        w.address?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        w.label?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (w.twitter_username && w.twitter_username.toLowerCase().includes(searchTerm.toLowerCase()));
 
-    let matchCategory = true;
-    if (categoryFilter === 'CUSTOM') matchCategory = w.is_custom === 1;
-    else if (categoryFilter === 'ASSOCIATED') matchCategory = w.is_associated === 1;
-    else if (categoryFilter === 'TOP100') matchCategory = !w.is_custom && !w.is_associated;
+      let matchCategory = true;
+      if (categoryFilter === 'CUSTOM') matchCategory = w.is_custom === 1;
+      else if (categoryFilter === 'ASSOCIATED') matchCategory = w.is_associated === 1;
+      else if (categoryFilter === 'TOP100') matchCategory = !w.is_custom && !w.is_associated;
 
-    return matchSearch && matchCategory;
-  });
+      return matchSearch && matchCategory;
+    });
+
+    return list.sort((a, b) => {
+      let valA = a[sortField];
+      let valB = b[sortField];
+
+      if (sortField === 'rank') {
+        valA = Number(a.rank) || 9999;
+        valB = Number(b.rank) || 9999;
+      } else if (sortField === 'win_rate') {
+        valA = Number(a.win_rate || a.winRate || 0);
+        valB = Number(b.win_rate || b.winRate || 0);
+      } else if (sortField === 'profit_7d') {
+        valA = Number(a.profit_7d || a.profit7d || 0);
+        valB = Number(b.profit_7d || b.profit7d || 0);
+      } else if (sortField === 'is_custom') {
+        // 排序属性权重: 自定义(3) > 关联(2) > Top100(1)
+        valA = a.is_custom ? 3 : a.is_associated ? 2 : 1;
+        valB = b.is_custom ? 3 : b.is_associated ? 2 : 1;
+      } else if (sortField === 'is_monitored') {
+        valA = a.is_monitored ? 1 : 0;
+        valB = b.is_monitored ? 1 : 0;
+      } else {
+        valA = String(valA || '').toLowerCase();
+        valB = String(valB || '').toLowerCase();
+      }
+
+      if (valA < valB) return sortDirection === 'asc' ? -1 : 1;
+      if (valA > valB) return sortDirection === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }, [wallets, searchTerm, categoryFilter, sortField, sortDirection]);
 
   return (
     <div className="glass-panel rounded-2xl border border-slate-800/80 overflow-hidden">
@@ -129,17 +186,65 @@ export default function WalletsTable({ wallets, onToggleStatus, onAddWallet }) {
       {/* 列表表格 */}
       <div className="overflow-x-auto">
         <table className="w-full text-left text-xs">
-          <thead className="bg-dark-800/60 text-slate-400 uppercase tracking-wider font-mono border-b border-slate-800/80">
+          <thead className="bg-dark-800/60 text-slate-400 uppercase tracking-wider font-mono border-b border-slate-800/80 select-none">
             <tr>
-              <th className="py-3 px-4 w-14 text-center">排名</th>
-              <th className="py-3 px-4">钱包属性</th>
-              <th className="py-3 px-4">钱包地址 / 备注</th>
-              <th className="py-3 px-4">推特 / X 账号</th>
-              <th className="py-3 px-4">历史胜率</th>
-              <th className="py-3 px-4">7日总获利</th>
-              <th className="py-3 px-4">标签类别</th>
-              <th className="py-3 px-4 text-center">监控状态</th>
-              <th className="py-3 px-4 text-right">GMGN详情</th>
+              <th
+                onClick={() => handleSort('rank')}
+                className="py-3 px-4 w-14 text-center cursor-pointer group hover:text-white transition whitespace-nowrap"
+              >
+                <span>排名</span>
+                {renderSortIcon('rank')}
+              </th>
+              <th
+                onClick={() => handleSort('is_custom')}
+                className="py-3 px-4 cursor-pointer group hover:text-white transition whitespace-nowrap"
+              >
+                <span>钱包属性</span>
+                {renderSortIcon('is_custom')}
+              </th>
+              <th
+                onClick={() => handleSort('label')}
+                className="py-3 px-4 cursor-pointer group hover:text-white transition whitespace-nowrap"
+              >
+                <span>钱包地址 / 备注</span>
+                {renderSortIcon('label')}
+              </th>
+              <th
+                onClick={() => handleSort('twitter_username')}
+                className="py-3 px-4 cursor-pointer group hover:text-white transition whitespace-nowrap"
+              >
+                <span>推特 / X 账号</span>
+                {renderSortIcon('twitter_username')}
+              </th>
+              <th
+                onClick={() => handleSort('win_rate')}
+                className="py-3 px-4 cursor-pointer group hover:text-white transition whitespace-nowrap"
+              >
+                <span>历史胜率</span>
+                {renderSortIcon('win_rate')}
+              </th>
+              <th
+                onClick={() => handleSort('profit_7d')}
+                className="py-3 px-4 cursor-pointer group hover:text-white transition whitespace-nowrap"
+              >
+                <span>7日总获利</span>
+                {renderSortIcon('profit_7d')}
+              </th>
+              <th
+                onClick={() => handleSort('tag')}
+                className="py-3 px-4 cursor-pointer group hover:text-white transition whitespace-nowrap"
+              >
+                <span>标签类别</span>
+                {renderSortIcon('tag')}
+              </th>
+              <th
+                onClick={() => handleSort('is_monitored')}
+                className="py-3 px-4 text-center cursor-pointer group hover:text-white transition whitespace-nowrap"
+              >
+                <span>监控状态</span>
+                {renderSortIcon('is_monitored')}
+              </th>
+              <th className="py-3 px-4 text-right whitespace-nowrap">GMGN详情</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800/60">

@@ -54,8 +54,14 @@ export async function getTokenMarketData(tokenAddress) {
     });
 
     if (res.data && Array.isArray(res.data.pairs) && res.data.pairs.length > 0) {
-      // 优选流动性最高的交易对
-      const sortedPairs = [...res.data.pairs].sort((a, b) => {
+      // 优选流动性与报价币种正规的交易对（必须以 SOL、WSOL、USDC、USDT 结算，彻底杜绝 WBTC/L$L 等虚假高额脏池）
+      const standardQuotes = ['SOL', 'WSOL', 'USDC', 'USDT'];
+      const standardPairs = res.data.pairs.filter(p =>
+        standardQuotes.includes(p.quoteToken?.symbol?.toUpperCase())
+      );
+      const candidatePairs = standardPairs.length > 0 ? standardPairs : res.data.pairs;
+
+      const sortedPairs = [...candidatePairs].sort((a, b) => {
         const liqA = a.liquidity?.usd || 0;
         const liqB = b.liquidity?.usd || 0;
         return liqB - liqA;
