@@ -25,6 +25,7 @@ import { tradingSimulator } from './services/tradingSimulator.js';
 import { monitorService } from './services/monitorService.js';
 import { telegramService } from './services/telegramService.js';
 import { goldenDogService } from './services/goldenDogService.js';
+import { walletTracerService } from './services/walletTracerService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -47,11 +48,12 @@ const io = new Server(server, {
   }
 });
 
-// 绑定 Socket 到监控引擎、模拟交易引擎与电报服务
+// 绑定 Socket 到监控引擎、模拟交易引擎与电报服务、钱包溯源引擎
 tradingSimulator.setSocketServer(io);
 monitorService.setSocketServer(io);
 telegramService.setSocketServer(io);
 goldenDogService.setSocketServer(io);
+walletTracerService.setSocketServer(io);
 
 io.on('connection', (socket) => {
   console.log(`[Socket] 客户端已连接: ${socket.id}`);
@@ -87,13 +89,33 @@ app.get('/api/wallets', (req, res) => {
   res.json({ wallets: getAllWallets() });
 });
 
-// 添加自定义监控钱包
-app.post('/api/wallets', (req, res) => {
-  const { address, label, win_rate, profit_7d, tag } = req.body;
-  if (!address) {
-    return res.status(400).json({ error: '钱包地址不能为空' });
+// 获取资金走向挖掘发现的关联小号钱包
+app.get('/api/wallets/associated', (req, res) => {
+  res.json({ wallets: walletTracerService.getDiscoveredWallets() });
+});
+
+// 添加自定义重点关注钱包 (支持推特账号，并自动启动资金流向挖掘)
+app.post('/api/wallets', async (req, res) => {
+  const { address, label, win_rate, profit_7d, tag, twitter_username } = req.body;
+  if (!address || address.trim().length < 32) {
+    return res.status(400).json({ error: '请输入有效的 Solana 钱包地址 (Base58 格式)' });
   }
-  addCustomWallet({ address, label, win_rate, profit_7d, tag });
+  const cleanAddr = address.trim();
+  const cleanLabel = (label && label.trim()) || '⭐ 自定义重点关注钱包';
+  const cleanTwitter = (twitter_username && twitter_username.trim().replace(/^@/, '')) || '';
+
+  addCustomWallet({
+    address: cleanAddr,
+    label: cleanLabel,
+    win_rate: parseFloat(win_rate) || 75.0,
+    profit_7d: parseFloat(profit_7d) || 50000,
+    tag: tag || 'CUSTOM',
+    twitter_username: cleanTwitter
+  });
+
+  // 异步触发对该钱包的关联小号挖掘
+  walletTracerService.traceAndLinkAssociatedWallets(cleanAddr, cleanLabel).catch(() => {});
+
   res.json({ success: true, wallets: getAllWallets() });
 });
 

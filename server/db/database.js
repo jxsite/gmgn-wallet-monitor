@@ -82,21 +82,46 @@ export function initDatabase() {
   try { db.exec("ALTER TABLE positions ADD COLUMN reached_milestones TEXT DEFAULT '[]'"); } catch (e) {}
   try { db.exec("ALTER TABLE positions ADD COLUMN close_reason TEXT DEFAULT ''"); } catch (e) {}
   try { db.exec("ALTER TABLE alerts ADD COLUMN sim_status TEXT DEFAULT ''"); } catch (e) {}
+  try { db.exec("ALTER TABLE alerts ADD COLUMN price_usd REAL DEFAULT 0.0"); } catch (e) {}
+  try { db.exec("ALTER TABLE alerts ADD COLUMN twitter_username TEXT DEFAULT ''"); } catch (e) {}
+  try { db.exec("ALTER TABLE alerts ADD COLUMN is_custom INTEGER DEFAULT 0"); } catch (e) {}
+  try { db.exec("ALTER TABLE alerts ADD COLUMN is_associated INTEGER DEFAULT 0"); } catch (e) {}
+  try { db.exec("ALTER TABLE wallets ADD COLUMN twitter_username TEXT DEFAULT ''"); } catch (e) {}
+  try { db.exec("ALTER TABLE wallets ADD COLUMN twitter_name TEXT DEFAULT ''"); } catch (e) {}
+  try { db.exec("ALTER TABLE wallets ADD COLUMN is_custom INTEGER DEFAULT 0"); } catch (e) {}
+  try { db.exec("ALTER TABLE wallets ADD COLUMN is_associated INTEGER DEFAULT 0"); } catch (e) {}
+  try { db.exec("ALTER TABLE wallets ADD COLUMN parent_wallet TEXT DEFAULT ''"); } catch (e) {}
+  try { db.exec("ALTER TABLE wallets ADD COLUMN fund_source TEXT DEFAULT ''"); } catch (e) {}
 
-  // 检查是否已有钱包，如果没有则导入 100 个种子钱包
+  // 检查是否已有钱包，如果没有或全是旧虚拟哈希，则导入/刷新 100 个真实种子钱包
   const countStmt = db.prepare('SELECT COUNT(*) as count FROM wallets');
   const { count } = countStmt.get();
 
+  const customCount = db.prepare('SELECT COUNT(*) as count FROM wallets WHERE is_custom = 1').get()?.count || 0;
   if (count === 0) {
     const insertWallet = db.prepare(`
-      INSERT OR IGNORE INTO wallets (rank, address, label, win_rate, profit_7d, pnl_ratio, tag, is_monitored)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+      INSERT OR IGNORE INTO wallets (rank, address, label, win_rate, profit_7d, pnl_ratio, tag, is_monitored, twitter_username)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
     `);
 
     for (const w of SEED_WALLETS) {
-      insertWallet.run(w.rank, w.address, w.label, w.winRate, w.profit7d, w.pnlRatio, w.tag);
+      insertWallet.run(w.rank, w.address, w.label, w.winRate, w.profit7d, w.pnlRatio, w.tag, w.twitter_username || '');
     }
     console.log(`[DB] 已初始化导入 ${SEED_WALLETS.length} 个 GMGN Top 聪明钱钱包`);
+  } else if (customCount === 0) {
+    // 检查是否有带推特的有效聪明钱，若全无推特且为旧虚拟哈希，则平滑升级
+    const hasTwitterCount = db.prepare("SELECT COUNT(*) as count FROM wallets WHERE twitter_username != ''").get()?.count || 0;
+    if (hasTwitterCount === 0) {
+      db.prepare('DELETE FROM wallets WHERE is_custom = 0 AND is_associated = 0').run();
+      const insertWallet = db.prepare(`
+        INSERT OR IGNORE INTO wallets (rank, address, label, win_rate, profit_7d, pnl_ratio, tag, is_monitored, twitter_username)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
+      `);
+      for (const w of SEED_WALLETS) {
+        insertWallet.run(w.rank, w.address, w.label, w.winRate, w.profit7d, w.pnlRatio, w.tag, w.twitter_username || '');
+      }
+      console.log(`[DB] 已自动升级刷新为 ${SEED_WALLETS.length} 个全新真实 Solana 聪明钱地址库 (含 X 账号)`);
+    }
   }
 
   // 写入用户指定的专属 Telegram Bot Token
@@ -156,23 +181,98 @@ export function updateWalletStatus(address, isMonitored) {
 
 export function addCustomWallet(wallet) {
   const stmt = db.prepare(`
-    INSERT INTO wallets (rank, address, label, win_rate, profit_7d, pnl_ratio, tag, is_monitored)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+    INSERT INTO wallets (rank, address, label, win_rate, profit_7d, pnl_ratio, tag, is_monitored, is_custom, twitter_username)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, ?)
     ON CONFLICT(address) DO UPDATE SET
       label = excluded.label,
       win_rate = excluded.win_rate,
       profit_7d = excluded.profit_7d,
-      is_monitored = 1
+      is_monitored = 1,
+      is_custom = 1,
+      twitter_username = CASE WHEN excluded.twitter_username != '' THEN excluded.twitter_username ELSE wallets.twitter_username END
   `);
   return stmt.run(
     wallet.rank || 999,
     wallet.address,
-    wallet.label || '自定义钱包',
+    wallet.label || '自定义关注钱包',
     wallet.win_rate || 75.0,
     wallet.profit_7d || 50000,
     wallet.pnl_ratio || 150.0,
-    wallet.tag || 'custom'
+    wallet.tag || 'CUSTOM',
+    wallet.twitter_username || ''
   );
+}
+
+export function addAssociatedWallet({ address, label, parent_wallet, fund_source, twitter_username }) {
+  const stmt = db.prepare(`
+    INSERT INTO wallets (rank, address, label, win_rate, profit_7d, pnl_ratio, tag, is_monitored, is_associated, parent_wallet, fund_source, twitter_username)
+    VALUES (888, ?, ?, 72.0, 28000, 120.0, 'ASSOCIATED', 1, 1, ?, ?, ?)
+    ON CONFLICT(address) DO UPDATE SET
+      is_associated = 1,
+      parent_wallet = excluded.parent_wallet,
+      fund_source = excluded.fund_source,
+      is_monitored = 1
+  `);
+  return stmt.run(
+    address,
+    label || `🔗 关联小号 (${parent_wallet.slice(0, 4)}...)`,
+    parent_wallet || '',
+    fund_source || '',
+    twitter_username || ''
+  );
+}
+
+export function updateWalletTwitter(address, twitter_username, twitter_name = '') {
+  if (!address || !twitter_username) return;
+  const stmt = db.prepare(`
+    UPDATE wallets
+    SET twitter_username = ?, twitter_name = ?
+    WHERE address = ? AND (twitter_username IS NULL OR twitter_username = '')
+  `);
+  return stmt.run(twitter_username, twitter_name, address);
+}
+
+// 自动收录 GMGN 实时链上最新交易的真实聪明钱地址
+export function upsertSmartWalletFromTrade({ address, label, tag, twitter_username }) {
+  if (!address || address.length < 32) return;
+  const existing = db.prepare('SELECT address, is_custom, is_associated, twitter_username FROM wallets WHERE address = ?').get(address);
+  if (!existing) {
+    const maxRankRow = db.prepare('SELECT MAX(rank) as max_rank FROM wallets').get();
+    const newRank = Math.min((maxRankRow?.max_rank || 100) + 1, 999);
+    const stmt = db.prepare(`
+      INSERT INTO wallets (rank, address, label, win_rate, profit_7d, pnl_ratio, tag, is_monitored, twitter_username)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
+    `);
+    stmt.run(
+      newRank,
+      address,
+      label || 'GMGN 获利聪明钱',
+      78.5,
+      68000,
+      180.0,
+      tag || 'smart_degen',
+      twitter_username || ''
+    );
+  } else if (twitter_username && !existing.twitter_username) {
+    db.prepare('UPDATE wallets SET twitter_username = ? WHERE address = ?').run(twitter_username, address);
+  }
+}
+
+
+export function isCustomWallet(address) {
+  if (!address) return false;
+  const row = db.prepare('SELECT is_custom FROM wallets WHERE address = ?').get(address);
+  return row ? Boolean(row.is_custom) : false;
+}
+
+export function isAssociatedWallet(address) {
+  if (!address) return { isAssociated: false, parentWallet: '' };
+  const row = db.prepare('SELECT is_associated, parent_wallet FROM wallets WHERE address = ?').get(address);
+  return row ? { isAssociated: Boolean(row.is_associated), parentWallet: row.parent_wallet || '' } : { isAssociated: false, parentWallet: '' };
+}
+
+export function getAssociatedWallets() {
+  return db.prepare('SELECT * FROM wallets WHERE is_associated = 1 ORDER BY created_at DESC').all();
 }
 
 // 检查某个代币是否已处于持仓中（去重防重复买入）
@@ -259,8 +359,9 @@ export function insertAlert(alert) {
     INSERT OR IGNORE INTO alerts (
       tx_hash, wallet_address, wallet_label,
       token_address, token_symbol, token_name,
-      side, amount_usd, mc_at_event, is_simulated, sim_status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      side, amount_usd, mc_at_event, is_simulated, sim_status,
+      price_usd, twitter_username, is_custom, is_associated
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   return stmt.run(
     alert.tx_hash || `tx_${Date.now()}_${Math.random().toString(36).slice(2)}`,
@@ -273,7 +374,11 @@ export function insertAlert(alert) {
     Number(alert.amount_usd) || 0,
     Number(alert.mc_at_event) || 0,
     alert.is_simulated ? 1 : 0,
-    alert.sim_status || (alert.is_simulated ? 'SIMULATED' : '')
+    alert.sim_status || (alert.is_simulated ? 'SIMULATED' : ''),
+    Number(alert.price_usd) || 0,
+    alert.twitter_username || '',
+    alert.is_custom ? 1 : 0,
+    alert.is_associated ? 1 : 0
   );
 }
 

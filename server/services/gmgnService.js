@@ -11,6 +11,9 @@ export class GmgnService {
     this.clockOffsetMs = 0;
     this.lastSyncTime = 0;
     this.syncPromise = null;
+    this.banUntil = 0;
+    this.lastSmTrades = [];
+    this.lastSmTradesTime = 0;
     // 立即启动服务器时钟校准
     this.syncServerTime().catch(() => {});
   }
@@ -24,6 +27,11 @@ export class GmgnService {
   hasApiKey() {
     const key = this.getApiKey();
     return !!(key && key.trim().length > 5);
+  }
+
+  // 检查是否处于限频封禁冷却中
+  isRateLimited() {
+    return Date.now() < this.banUntil;
   }
 
   // 自动与 GMGN 官方服务器校准时钟偏差 (确保 timestamp 在 ±5s 验证窗口内)
@@ -70,11 +78,17 @@ export class GmgnService {
     };
   }
 
-  // 基础请求方法
+  // 基础请求方法 (内置 429 智能退避与严格频控)
   async request(method, subPath, queryParams = {}, body = null, retried = false) {
     const apiKey = this.getApiKey();
     if (!apiKey) {
       throw new Error('未配置 GMGN_API_KEY');
+    }
+
+    const now = Date.now();
+    if (now < this.banUntil) {
+      const remainSec = Math.ceil((this.banUntil - now) / 1000);
+      throw new Error(`GMGN_RATE_LIMITED: 处于限频保护冷却中，将在 ${remainSec}s 后自动解除`);
     }
 
     // 确保至少做过一次时间校准
@@ -107,6 +121,18 @@ export class GmgnService {
       }
       throw new Error(res.data?.msg || res.data?.message || 'GMGN API 请求返回非零状态码');
     } catch (err) {
+      // 捕捉 429 限频封禁并记录重置时间
+      if (err.response?.status === 429 || err.response?.data?.error === 'RATE_LIMIT_BANNED') {
+        const resetAt = err.response?.data?.reset_at || err.response?.headers?.['x-ratelimit-reset'];
+        if (resetAt) {
+          this.banUntil = (Number(resetAt) * 1000) + 3000;
+        } else {
+          this.banUntil = Date.now() + 180000; // 默认退避 3 分钟
+        }
+        console.warn(`[GMGN Service] ⚠️ 触发 429 限频保护，自动暂停外呼至 ${new Date(this.banUntil).toLocaleTimeString()}`);
+        throw err;
+      }
+
       // 若遇到 timestamp expired 错误，强制重新校准时钟重试一次
       if (!retried && err.response?.data?.error === 'AUTH_TIMESTAMP_EXPIRED') {
         console.warn('[GMGN Service] 收到 AUTH_TIMESTAMP_EXPIRED，重新校对服务器时钟并重试...');
@@ -200,16 +226,19 @@ export class GmgnService {
     }
   }
 
-  // 获取聪明钱最新交易记录 (带 8s 频控与 429 优雅退避)
+  // 获取聪明钱最新交易记录 (带 12s 智能频控与 429 优雅退避)
   async getSmartMoneyTrades(limit = 50, chain = 'sol') {
     if (!this.hasApiKey()) {
       return null;
     }
     const now = Date.now();
+    if (this.banUntil && now < this.banUntil) {
+      return this.lastSmTrades || [];
+    }
     if (this.smCooldownUntil && now < this.smCooldownUntil) {
       return this.lastSmTrades || [];
     }
-    if (this.lastSmTradesTime && (now - this.lastSmTradesTime < 8000)) {
+    if (this.lastSmTradesTime && (now - this.lastSmTradesTime < 12000)) {
       return this.lastSmTrades || [];
     }
 
@@ -224,8 +253,6 @@ export class GmgnService {
       return list;
     } catch (err) {
       if (err.response?.status === 429) {
-        // 遇到 429，冷静 15 秒并复用已有数据
-        this.smCooldownUntil = now + 15000;
         return this.lastSmTrades || [];
       }
       return this.lastSmTrades || [];

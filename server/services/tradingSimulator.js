@@ -48,7 +48,8 @@ export class TradingSimulator {
     tokenName,
     triggerWallet,
     buyAmountUsd = null,
-    chain = 'sol'
+    chain = 'sol',
+    entryPrice: passedEntryPrice = null
   }) {
     const isEnabled = getSetting('auto_buy_enabled', 'true') === 'true';
     if (!isEnabled) {
@@ -68,7 +69,7 @@ export class TradingSimulator {
     // 获取实时行情以获取精准的开仓 MC
     let marketData = await getTokenMarketData(tokenAddress);
     const entryMc = marketData?.marketCap || marketData?.fdv || 100000;
-    const entryPrice = marketData?.priceUsd || 0.0001;
+    const entryPrice = passedEntryPrice || marketData?.price || marketData?.priceUsd || 0.0001;
     const symbol = marketData?.symbol || tokenSymbol || 'UNKNOWN';
     const name = marketData?.name || tokenName || 'Token';
 

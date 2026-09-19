@@ -92,6 +92,15 @@ export class TelegramService {
     return `$${Number(num).toFixed(2)}`;
   }
 
+  // 格式化代币实时单价 (支持微小数值)
+  formatPrice(price) {
+    if (!price || isNaN(price)) return '$0.00';
+    const num = Number(price);
+    if (num >= 1) return `$${num.toFixed(4)}`;
+    if (num >= 0.001) return `$${num.toFixed(6)}`;
+    return `$${num.toFixed(8)}`;
+  }
+
   async sendRawMessage(targetChatId, messageHtml) {
     const { token } = this.getCredentials();
     if (!token || !targetChatId) return false;
@@ -109,7 +118,7 @@ export class TelegramService {
     }
   }
 
-  // 1. 发送买入预警通知（区分新买入与重复过滤）
+  // 1. 发送买入预警通知（含单价、GMGN直达、X推特、自定义/关联小号标识）
   async sendBuyAlert({
     walletAddress,
     walletLabel,
@@ -118,6 +127,11 @@ export class TelegramService {
     tokenName,
     buyAmountUsd,
     marketCap,
+    priceUsd = 0,
+    twitterUsername = '',
+    isCustom = false,
+    isAssociated = false,
+    parentWallet = '',
     simulatedBuyAmount = 10,
     isDuplicate = false,
     txHash
@@ -132,7 +146,21 @@ export class TelegramService {
     const solscanTxUrl = txHash ? `https://solscan.io/tx/${txHash}` : `https://solscan.io/account/${walletAddress}`;
 
     const formattedMC = this.formatNumber(marketCap);
+    const formattedPrice = this.formatPrice(priceUsd);
     const timeStr = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+
+    // 钱包属性标识
+    let walletTypeBadge = '👤 <b>【GMGN 获利聪明钱】</b>';
+    if (isCustom) {
+      walletTypeBadge = '⭐ <b>【自定义重点关注钱包】</b>';
+    } else if (isAssociated) {
+      walletTypeBadge = `🔗 <b>【聪明钱关联小号】</b> (主号: <code>${parentWallet ? parentWallet.slice(0, 4) + '...' : ''}</code>)`;
+    }
+
+    // X/Twitter 账号信息
+    const twitterText = twitterUsername
+      ? `𝕏 <b>推特账号:</b> <a href="https://x.com/${twitterUsername}">@${twitterUsername}</a>\n`
+      : '';
 
     let strategyStatus = '';
     if (isDuplicate) {
@@ -141,7 +169,7 @@ export class TelegramService {
       strategyStatus = `
 🤖 <b>【10U 模拟跟单】</b>
 ✅ 已同步开仓: <b>${simulatedBuyAmount} USD</b>
-📌 入场基准 MC: <b>${formattedMC}</b>
+📌 入场基准 MC: <b>${formattedMC}</b> | 单价: <b>${formattedPrice}</b>
 🎯 预设止盈: <b>3x 时卖出 1.5 倍本金 ($15U)</b>
 🛑 预设止损: <b>-50% 时直接清仓</b>
       `.trim();
@@ -150,19 +178,21 @@ export class TelegramService {
     const messageHtml = `
 🚀 <b>【GMGN 聪明钱买入预警】</b>
 ━━━━━━━━━━━━━━━━━
-👤 <b>监控钱包:</b> <a href="${gmgnWalletUrl}"><b>${walletLabel || 'Smart Money'}</b> (${shortWallet})</a>
-🪙 <b>代币信息:</b> <b>$${tokenSymbol || 'UNKNOWN'}</b> | ${tokenName || ''}
+${walletTypeBadge}
+👤 <b>钱包地址:</b> <a href="${gmgnWalletUrl}"><b>${walletLabel || 'Smart Money'}</b> (${shortWallet})</a>
+${twitterText}🪙 <b>代币信息:</b> <b>$${tokenSymbol || 'UNKNOWN'}</b> | ${tokenName || ''}
 📋 <b>合约地址 CA:</b>
 <code>${tokenAddress}</code>
 
-💰 <b>钱包买入:</b> $${(buyAmountUsd || 0).toLocaleString()} USD
-📊 <b>代币当前 MC:</b> <b>${formattedMC}</b>
+💵 <b>代币价格:</b> <b>${formattedPrice} USD</b>
+📊 <b>代币市值:</b> <b>${formattedMC}</b>
+💰 <b>钱包买入:</b> <b>$${(buyAmountUsd || 0).toLocaleString()} USD</b>
 ⏰ <b>捕获时间:</b> ${timeStr}
 
 ${strategyStatus}
 
-🔗 <b>快捷通道:</b>
-<a href="${gmgnTokenUrl}">[GMGN 代币]</a> | <a href="${dexscreenerUrl}">[DexScreener 图表]</a> | <a href="${solscanTxUrl}">[链上详情]</a>
+🔗 <b>官方直达通道:</b>
+👉 <a href="${gmgnTokenUrl}"><b>[GMGN 官方走势图]</b></a> | <a href="${dexscreenerUrl}">[DexScreener]</a> | <a href="${solscanTxUrl}">[链上详情]</a>
 ━━━━━━━━━━━━━━━━━
     `.trim();
 
@@ -230,12 +260,12 @@ ${strategyStatus}
 🪙 <b>代币:</b> <b>$${tokenSymbol}</b>
 📋 <b>合约 CA:</b> <code>${tokenAddress}</code>
 📉 <b>入场 MC:</b> ${this.formatNumber(entryMc)} ➔ <b>当前跌至:</b> ${this.formatNumber(currentMc)}
-📉 <b>跌幅比例:</b> <font color="#ff4d6d"><b>-${ratio}%</b></font>
+📉 <b>跌幅比例:</b> <b>-${ratio}%</b>
 
 💸 <b>【10U 仓位最终亏损核算】</b>
 • <b>投入本金:</b> $${entryAmount.toFixed(2)} USD
 • <b>清仓收回:</b> $${currentValue.toFixed(2)} USD
-• <b>净亏损额:</b> <font color="#ff4d6d"><b>-$${lossUsd.toFixed(2)} USD</b></font> (-${ratio}%)
+• <b>净亏损额:</b> <b>-$${lossUsd.toFixed(2)} USD</b> (-${ratio}%)
 
 ⚠️ <b>【策略执行情况】</b>
 🛑 <b>已严格执行止损规则：直接全额清仓离场！</b>
@@ -278,6 +308,26 @@ ${buyersText || '• 多名获利前100聪明钱巨鲸重仓入场'}
 🔗 <a href="https://gmgn.ai/sol/token/${tokenAddress}">[GMGN行情]</a> | <a href="https://dexscreener.com/solana/${tokenAddress}">[DexScreener走势]</a>
 ━━━━━━━━━━━━━━━━━
 💡 <i>多位高胜率聪明钱同时重仓买入，资金共识度极高！</i>
+    `.trim();
+
+    return this.sendRawMessage(chatId, messageHtml);
+  }
+
+  // 6. 发送【资金走向挖掘：发现关联小号】通知
+  async sendAssociatedWalletAlert({ parentWallet, parentLabel, childWallet, amount }) {
+    const { chatId } = this.getCredentials();
+    if (!this.isConfigured()) return false;
+
+    const messageHtml = `
+🔍 <b>【资金走向挖掘：发现关联小号】</b>
+━━━━━━━━━━━━━━━━━
+👤 <b>聪明钱主号:</b> <b>${parentLabel}</b> (<code>${parentWallet ? parentWallet.slice(0, 4) + '...' + parentWallet.slice(-4) : ''}</code>)
+🔗 <b>挖掘小号:</b> <code>${childWallet}</code>
+💰 <b>资金异动:</b> ${amount > 0 ? `${amount} SOL` : '直接资金往来 / 分发'}
+🛡️ <b>系统动作:</b> 已自动将该关联小号纳入全天候统一监控！其任何买卖动作将同步推报。
+
+🔗 <a href="https://gmgn.ai/sol/address/${childWallet}">[GMGN 钱包详情]</a> | <a href="https://solscan.io/account/${childWallet}">[Solscan 资金追踪]</a>
+━━━━━━━━━━━━━━━━━
     `.trim();
 
     return this.sendRawMessage(chatId, messageHtml);

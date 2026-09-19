@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import { TrendingUp, ArrowUpRight, ArrowDownRight, ExternalLink, DollarSign, Copy, Check, Zap, Target, ShieldAlert, Sparkles, AlertTriangle } from 'lucide-react';
 import axios from 'axios';
 
@@ -8,6 +8,14 @@ function formatMC(val) {
   if (val >= 1e6) return `$${(val / 1e6).toFixed(2)}M`;
   if (val >= 1e3) return `$${(val / 1e3).toFixed(2)}K`;
   return `$${Number(val).toFixed(2)}`;
+}
+
+function formatPrice(price) {
+  if (!price || isNaN(price)) return '$0.00';
+  const num = Number(price);
+  if (num >= 1) return `$${num.toFixed(4)}`;
+  if (num >= 0.001) return `$${num.toFixed(6)}`;
+  return `$${num.toFixed(8)}`;
 }
 
 export default function PaperTrading({ positions, onClosePosition, onManualBuy, summary }) {
@@ -261,7 +269,7 @@ export default function PaperTrading({ positions, onClosePosition, onManualBuy, 
                 <tr>
                   <th className="py-3 px-4">代币 / CA</th>
                   <th className="py-3 px-4">开仓本金</th>
-                  <th className="py-3 px-4">入场基准 MC</th>
+                  <th className="py-3 px-4">入场单价 ➔ 当前单价</th>
                   <th className="py-3 px-4">当前 GMGN 市值 (MC)</th>
                   <th className="py-3 px-4">当前仓位价值</th>
                   <th className="py-3 px-4">当前净盈亏额 (USD)</th>
@@ -308,9 +316,18 @@ export default function PaperTrading({ positions, onClosePosition, onManualBuy, 
                         ${cost.toFixed(2)}
                       </td>
 
-                      {/* 入场市值 */}
-                      <td className="py-3.5 px-4 font-mono text-slate-400">
-                        {formatMC(pos.entry_mc)}
+                      {/* 单价变化 */}
+                      <td className="py-3.5 px-4 font-mono whitespace-nowrap">
+                        <div className="flex items-center space-x-1 text-[11px]">
+                          <span className="text-slate-400">{formatPrice(pos.entry_price)}</span>
+                          <span className="text-slate-600">➔</span>
+                          <span className={`font-semibold ${isProfit ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {formatPrice(pos.current_price)}
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                          基准 MC: {formatMC(pos.entry_mc)}
+                        </div>
                       </td>
 
                       {/* 当前 GMGN 精准市值 */}
@@ -366,10 +383,11 @@ export default function PaperTrading({ positions, onClosePosition, onManualBuy, 
                             href={`https://gmgn.ai/sol/token/${pos.token_address}`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition"
+                            className="px-2 py-1 rounded bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 border border-emerald-500/30 transition inline-flex items-center space-x-1 font-medium"
                             title="前往 GMGN 查看图表"
                           >
-                            <ExternalLink className="h-3.5 w-3.5" />
+                            <span>GMGN走势</span>
+                            <ExternalLink className="h-3 w-3" />
                           </a>
                           <button
                             onClick={() => onClosePosition(pos.id)}
