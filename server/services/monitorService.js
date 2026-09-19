@@ -7,6 +7,7 @@ import { gmgnService } from './gmgnService.js';
 import { getTokenMarketData } from './priceService.js';
 import { telegramService } from './telegramService.js';
 import { tradingSimulator } from './tradingSimulator.js';
+import { goldenDogService } from './goldenDogService.js';
 
 // 热门优质 Solana Meme 代币池，用于在无 API Key 或离线状态下提供真实的链上代币模拟行情
 const TRENDING_SOL_TOKENS = [
@@ -60,12 +61,24 @@ export class MonitorService {
         return;
       }
 
-      // 1. 如果已配置 GMGN 官方 API Key，尝试获取最新交易
+      // 1. 如果已配置 GMGN 官方 API Key，获取最新交易并规整字段
       let detectedTrades = [];
       if (gmgnService.hasApiKey()) {
         const smartTrades = await gmgnService.getSmartMoneyTrades(30);
         if (smartTrades && smartTrades.length > 0) {
-          detectedTrades = smartTrades.filter(t => (t.event === 'buy' || t.side === 'buy'));
+          detectedTrades = smartTrades
+            .filter(t => (t.event === 'buy' || t.side === 'buy'))
+            .map(t => ({
+              tx_hash: t.transaction_hash || t.tx_hash || `${t.maker || 'wallet'}_${Date.now()}`,
+              wallet_address: t.maker || t.wallet_address || 'unknown',
+              wallet_label: t.maker_info?.name || (t.maker_info?.tags?.length ? `聪明钱 (${t.maker_info.tags.join(',')})` : 'GMGN 聪明钱'),
+              token_address: t.base_address || t.token_address,
+              token_symbol: (t.base_token?.symbol || t.token_symbol || 'TOKEN').replace(/^\$/, ''),
+              token_name: t.base_token?.name || t.token_name || t.base_token?.symbol || 'Token',
+              side: 'BUY',
+              amount_usd: parseFloat(t.amount_usd || t.buy_cost_usd || 1000)
+            }))
+            .filter(t => t.token_address);
         }
       }
 
@@ -178,6 +191,9 @@ export class MonitorService {
       isDuplicate: isAlreadyHeld,
       txHash: tx_hash
     });
+
+    // 6. 检查是否触发金狗共识预警 (人数最多 / 金额最多)
+    await goldenDogService.checkAndAlertGoldenDog(token_address);
   }
 
   // 手动触发测试信号

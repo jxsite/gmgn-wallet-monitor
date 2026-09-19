@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { io } from 'socket.io-client';
 import axios from 'axios';
-import { Activity, DollarSign, Users, ShieldAlert, Sparkles } from 'lucide-react';
+import { Activity, DollarSign, Users, ShieldAlert, Sparkles, Flame } from 'lucide-react';
 
 import Navbar from './components/Navbar.jsx';
 import StatCards from './components/StatCards.jsx';
@@ -9,6 +9,7 @@ import LiveSignals from './components/LiveSignals.jsx';
 import PaperTrading from './components/PaperTrading.jsx';
 import WalletsTable from './components/WalletsTable.jsx';
 import SettingsModal from './components/SettingsModal.jsx';
+import GoldenDogRadar from './components/GoldenDogRadar.jsx';
 
 // 连接 Socket.io（在开发环境和生产环境自适应）
 const socketUrl = window.location.port === '5173' ? 'http://localhost:3000' : '/';
@@ -236,6 +237,21 @@ export default function App() {
           </button>
 
           <button
+            onClick={() => setActiveTab('dogs')}
+            className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-semibold transition ${
+              activeTab === 'dogs'
+                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm font-bold'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+            }`}
+          >
+            <Flame className="h-4 w-4 text-amber-400" />
+            <span>🏆 聪明钱「金狗雷达」</span>
+            <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-amber-500/20 text-amber-300 font-mono">
+              HOT
+            </span>
+          </button>
+
+          <button
             onClick={() => setActiveTab('trading')}
             className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-semibold transition ${
               activeTab === 'trading'
@@ -269,11 +285,16 @@ export default function App() {
         {/* 标签页视图呈现 */}
         {activeTab === 'signals' && <LiveSignals alerts={alerts} />}
 
+        {activeTab === 'dogs' && (
+          <GoldenDogRadar onManualBuy={handleManualBuy} />
+        )}
+
         {activeTab === 'trading' && (
           <PaperTrading
             positions={positions}
             onClosePosition={handleClosePosition}
             onManualBuy={handleManualBuy}
+            summary={summary}
           />
         )}
 

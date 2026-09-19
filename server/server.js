@@ -24,6 +24,7 @@ import {
 import { tradingSimulator } from './services/tradingSimulator.js';
 import { monitorService } from './services/monitorService.js';
 import { telegramService } from './services/telegramService.js';
+import { goldenDogService } from './services/goldenDogService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -50,6 +51,7 @@ const io = new Server(server, {
 tradingSimulator.setSocketServer(io);
 monitorService.setSocketServer(io);
 telegramService.setSocketServer(io);
+goldenDogService.setSocketServer(io);
 
 io.on('connection', (socket) => {
   console.log(`[Socket] 客户端已连接: ${socket.id}`);
@@ -126,6 +128,18 @@ app.post('/api/positions/:id/close', async (req, res) => {
 // 获取持仓汇总指标
 app.get('/api/summary', (req, res) => {
   res.json(tradingSimulator.getSummary());
+});
+
+// 获取金狗雷达榜单 (按买入人数或买入金额)
+app.get('/api/goldendogs', async (req, res) => {
+  try {
+    const sortBy = req.query.sort || 'buyers'; // 'buyers' or 'volume'
+    const limit = parseInt(req.query.limit || '20', 10);
+    const list = await goldenDogService.getGoldenDogs(sortBy, limit);
+    res.json({ success: true, list });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // 获取系统设置

@@ -106,6 +106,14 @@ export function initDatabase() {
     setSetting('telegram_bot_token', defaultToken);
     console.log('[DB] 已自动配置 Telegram Bot Token: @lunacan3bot');
   }
+
+  // 写入用户指定的专属 GMGN API Key
+  const defaultApiKey = 'gmgn_59afed5e6c4e5fbd0e2fd5930ce75d6a';
+  const currentApiKey = getSetting('gmgn_api_key');
+  if (!currentApiKey || currentApiKey.trim() === '') {
+    setSetting('gmgn_api_key', defaultApiKey);
+    console.log('[DB] 已自动配置 GMGN API Key: ' + defaultApiKey.substring(0, 10) + '...');
+  }
 }
 
 // Settings 辅助方法
@@ -255,15 +263,15 @@ export function insertAlert(alert) {
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   return stmt.run(
-    alert.tx_hash,
-    alert.wallet_address,
-    alert.wallet_label,
-    alert.token_address,
-    alert.token_symbol,
-    alert.token_name,
-    alert.side,
-    alert.amount_usd,
-    alert.mc_at_event,
+    alert.tx_hash || `tx_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+    alert.wallet_address || '',
+    alert.wallet_label || 'GMGN 聪明钱',
+    alert.token_address || '',
+    alert.token_symbol || 'TOKEN',
+    alert.token_name || 'Token',
+    alert.side || 'BUY',
+    Number(alert.amount_usd) || 0,
+    Number(alert.mc_at_event) || 0,
     alert.is_simulated ? 1 : 0,
     alert.sim_status || (alert.is_simulated ? 'SIMULATED' : '')
   );

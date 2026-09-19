@@ -254,30 +254,48 @@ export class TradingSimulator {
     return { success: true };
   }
 
-  // 获取汇总数据统计（包含已锁定落袋收益）
+  // 获取汇总数据统计（包含浮亏、浮盈、已锁定落袋收益、综合净盈亏）
   getSummary() {
     const openPositions = getOpenPositions();
     const allPositions = getAllPositions();
 
     const totalOpenCost = openPositions.reduce((acc, p) => acc + (p.entry_amount || 10), 0);
-    const totalCurrentVal = openPositions.reduce((acc, p) => {
+    
+    let totalCurrentVal = 0;
+    let totalFloatingLoss = 0;
+    let totalFloatingProfit = 0;
+
+    for (const p of openPositions) {
       const pnlFactor = 1 + (p.current_pnl_ratio || 0) / 100;
-      // 若已卖出1.5倍(50%仓位)，剩余持仓代币价值为当前估值的一半
+      const cost = p.entry_amount || 10;
+      // 若已触发3x卖出1.5倍(50%仓位)，剩余持仓代币价值为当前估值的一半
       const remainingRatio = p.has_taken_profit_3x ? 0.5 : 1.0;
-      return acc + (p.entry_amount || 10) * pnlFactor * remainingRatio;
-    }, 0);
+      const posVal = cost * pnlFactor * remainingRatio;
+      const posPnl = posVal - (p.has_taken_profit_3x ? 0 : cost);
+
+      totalCurrentVal += posVal;
+      if (posPnl < 0) {
+        totalFloatingLoss += posPnl;
+      } else {
+        totalFloatingProfit += posPnl;
+      }
+    }
 
     const totalRealized = allPositions.reduce((acc, p) => acc + (p.realized_profit || 0), 0);
     const unrealizedProfit = totalCurrentVal - totalOpenCost;
-    const overallPnlRatio = totalOpenCost > 0 ? ((totalCurrentVal + totalRealized - totalOpenCost) / totalOpenCost) * 100 : 0;
+    const netTotalProfit = unrealizedProfit + totalRealized;
+    const overallPnlRatio = totalOpenCost > 0 ? (netTotalProfit / totalOpenCost) * 100 : 0;
 
     return {
       openPositionsCount: openPositions.length,
       totalPositionsCount: allPositions.length,
       totalOpenCost: parseFloat(totalOpenCost.toFixed(2)),
       totalCurrentVal: parseFloat(totalCurrentVal.toFixed(2)),
-      totalRealizedProfit: parseFloat(totalRealized.toFixed(2)),
-      unrealizedProfit: parseFloat(unrealizedProfit.toFixed(2)),
+      totalFloatingLoss: parseFloat(totalFloatingLoss.toFixed(2)), // 明确告知当前总浮亏金额 (负数，如 -$15.50)
+      totalFloatingProfit: parseFloat(totalFloatingProfit.toFixed(2)), // 当前总浮盈金额
+      totalRealizedProfit: parseFloat(totalRealized.toFixed(2)), // 已锁定落袋收益
+      unrealizedProfit: parseFloat(unrealizedProfit.toFixed(2)), // 净浮动盈亏
+      netTotalProfit: parseFloat(netTotalProfit.toFixed(2)), // 综合总盈亏 (浮动+落袋)
       overallPnlRatio: parseFloat(overallPnlRatio.toFixed(2))
     };
   }

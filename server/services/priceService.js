@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { gmgnService } from './gmgnService.js';
 
 // 简单内存缓存防止频繁请求
 const cache = new Map();
@@ -15,6 +16,34 @@ export async function getTokenMarketData(tokenAddress) {
     }
   }
 
+  // 1. 优先使用官方 GMGN OpenAPI 获取最权威精准的 MC 与实时价格
+  try {
+    const gmgnInfo = await gmgnService.getTokenInfo(tokenAddress);
+    if (gmgnInfo && gmgnInfo.marketCap > 0) {
+      const data = {
+        symbol: gmgnInfo.symbol || 'UNKNOWN',
+        name: gmgnInfo.name || 'Unknown Token',
+        address: tokenAddress,
+        priceUsd: gmgnInfo.price,
+        marketCap: gmgnInfo.marketCap,
+        fdv: gmgnInfo.marketCap,
+        liquidityUsd: gmgnInfo.liquidity || 0,
+        volume24h: gmgnInfo.volume24h || 0,
+        holderCount: gmgnInfo.holderCount || 0,
+        smartWalletsCount: gmgnInfo.smartWalletsCount || 0,
+        dexUrl: `https://dexscreener.com/solana/${tokenAddress}`,
+        gmgnUrl: `https://gmgn.ai/sol/token/${tokenAddress}`,
+        chain: 'sol',
+        source: 'GMGN_OFFICIAL'
+      };
+      cache.set(tokenAddress, { timestamp: now, data });
+      return data;
+    }
+  } catch (e) {
+    // 降级继续
+  }
+
+  // 2. 次选 DexScreener 作为备用兜底
   try {
     const res = await axios.get(`https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`, {
       timeout: 8000,
@@ -46,7 +75,8 @@ export async function getTokenMarketData(tokenAddress) {
         volume24h: bestPair.volume?.h24 || 0,
         dexUrl: bestPair.url || `https://dexscreener.com/solana/${tokenAddress}`,
         pairAddress: bestPair.pairAddress,
-        chain: bestPair.chainId || 'solana'
+        chain: bestPair.chainId || 'solana',
+        source: 'DEXSCREENER_FALLBACK'
       };
 
       cache.set(tokenAddress, { timestamp: now, data });

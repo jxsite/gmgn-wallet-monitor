@@ -215,10 +215,14 @@ ${strategyStatus}
     return this.sendRawMessage(chatId, messageHtml);
   }
 
-  // 4. 发送【跌 50% 直接清仓】止损通知
-  async sendStopLossAlert({ tokenSymbol, tokenAddress, entryMc, currentMc, pnlRatio }) {
+  // 4. 发送【跌 50% 直接清仓】止损通知 (清晰告知亏损金额)
+  async sendStopLossAlert({ tokenSymbol, tokenAddress, entryMc, currentMc, pnlRatio, entryAmount = 10 }) {
     const { chatId } = this.getCredentials();
     if (!this.isConfigured()) return false;
+
+    const ratio = Math.abs(pnlRatio || 50);
+    const currentValue = parseFloat((entryAmount * (1 - ratio / 100)).toFixed(2));
+    const lossUsd = parseFloat((entryAmount - currentValue).toFixed(2));
 
     const messageHtml = `
 🛑 <b>【触发跌破 50% 止损清仓】</b>
@@ -226,12 +230,54 @@ ${strategyStatus}
 🪙 <b>代币:</b> <b>$${tokenSymbol}</b>
 📋 <b>合约 CA:</b> <code>${tokenAddress}</code>
 📉 <b>入场 MC:</b> ${this.formatNumber(entryMc)} ➔ <b>当前跌至:</b> ${this.formatNumber(currentMc)}
-📉 <b>跌幅比例:</b> <font color="#ff4d6d"><b>${pnlRatio}%</b></font>
+📉 <b>跌幅比例:</b> <font color="#ff4d6d"><b>-${ratio}%</b></font>
+
+💸 <b>【10U 仓位最终亏损核算】</b>
+• <b>投入本金:</b> $${entryAmount.toFixed(2)} USD
+• <b>清仓收回:</b> $${currentValue.toFixed(2)} USD
+• <b>净亏损额:</b> <font color="#ff4d6d"><b>-$${lossUsd.toFixed(2)} USD</b></font> (-${ratio}%)
 
 ⚠️ <b>【策略执行情况】</b>
 🛑 <b>已严格执行止损规则：直接全额清仓离场！</b>
-💡 果断规避代币归零风险，保留本金准备下一波聪明钱机会。
+💡 果断规避代币归零风险，保留剩余本金，等待下一波聪明钱机会。
 ━━━━━━━━━━━━━━━━━
+    `.trim();
+
+    return this.sendRawMessage(chatId, messageHtml);
+  }
+
+  // 5. 发送【超级金狗共识预警】（买入人数最多 / 买入金额最多）
+  async sendGoldenDogAlert({
+    tokenSymbol,
+    tokenName,
+    tokenAddress,
+    smartBuyersCount,
+    totalBuyUsd,
+    currentMc,
+    priceChangePercent,
+    topBuyers
+  }) {
+    const { chatId } = this.getCredentials();
+    if (!this.isConfigured()) return false;
+
+    const buyersText = (topBuyers || []).slice(0, 3).map(b => `• <b>${b.wallet_label}</b>: 买入 $${Number(b.amount_usd || 0).toLocaleString()}`).join('\n');
+
+    const messageHtml = `
+🔥 <b>【GMGN 超级金狗共识预警】</b> 🔥
+━━━━━━━━━━━━━━━━━
+🪙 <b>代币:</b> <b>$${tokenSymbol}</b> (${tokenName || ''})
+📋 <b>合约 CA:</b> <code>${tokenAddress}</code>
+👥 <b>聪明钱买入人数:</b> <b>${smartBuyersCount} 人</b> (共识极强！)
+💰 <b>聪明钱买入总额:</b> <b>$${Number(totalBuyUsd || 0).toLocaleString()} USD</b>
+📊 <b>当前市值:</b> ${this.formatNumber(currentMc)}
+📈 <b>近期涨幅:</b> <b>${priceChangePercent > 0 ? '+' : ''}${priceChangePercent}%</b>
+
+🏆 <b>【代表聪明钱巨鲸】</b>
+${buyersText || '• 多名获利前100聪明钱巨鲸重仓入场'}
+
+🔗 <a href="https://gmgn.ai/sol/token/${tokenAddress}">[GMGN行情]</a> | <a href="https://dexscreener.com/solana/${tokenAddress}">[DexScreener走势]</a>
+━━━━━━━━━━━━━━━━━
+💡 <i>多位高胜率聪明钱同时重仓买入，资金共识度极高！</i>
     `.trim();
 
     return this.sendRawMessage(chatId, messageHtml);

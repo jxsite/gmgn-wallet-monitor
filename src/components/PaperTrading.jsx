@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { TrendingUp, ArrowUpRight, ArrowDownRight, ExternalLink, DollarSign, Copy, Check, Zap, Target, ShieldAlert, Sparkles } from 'lucide-react';
+﻿import React, { useState } from 'react';
+import { TrendingUp, ArrowUpRight, ArrowDownRight, ExternalLink, DollarSign, Copy, Check, Zap, Target, ShieldAlert, Sparkles, AlertTriangle } from 'lucide-react';
 import axios from 'axios';
 
 function formatMC(val) {
@@ -10,7 +10,7 @@ function formatMC(val) {
   return `$${Number(val).toFixed(2)}`;
 }
 
-export default function PaperTrading({ positions, onClosePosition, onManualBuy }) {
+export default function PaperTrading({ positions, onClosePosition, onManualBuy, summary }) {
   const [copiedCA, setCopiedCA] = useState(null);
   const [customCA, setCustomCA] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -43,8 +43,106 @@ export default function PaperTrading({ positions, onClosePosition, onManualBuy }
     }
   };
 
+  // 计算当前总体亏损统计
+  const totalCost = summary?.totalOpenCost || (positions?.length || 0) * 10;
+  const currentVal = summary?.totalCurrentVal || 0;
+  const totalLoss = summary?.totalFloatingLoss || 0;
+  const totalProfit = summary?.totalFloatingProfit || 0;
+  const realizedProfit = summary?.totalRealizedProfit || 0;
+  const netTotalPnl = summary?.netTotalProfit || (currentVal - totalCost + realizedProfit);
+
   return (
     <div className="space-y-6">
+      {/* 核心盈亏直观统计看板 (清楚呈现我的 10U 当前亏损了多少) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* 当前总浮动亏损 */}
+        <div className="glass-panel p-4 rounded-xl border border-rose-500/30 bg-rose-500/5">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-rose-400 flex items-center space-x-1">
+              <AlertTriangle className="h-4 w-4 text-rose-400" />
+              <span>当前 10U 浮动总亏损</span>
+            </span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 font-mono">
+              亏损仓位
+            </span>
+          </div>
+          <div className="mt-2">
+            <h3 className="text-2xl font-bold font-mono text-rose-400">
+              {totalLoss < 0 ? `-$${Math.abs(totalLoss).toFixed(2)}` : '$0.00'}
+            </h3>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              当前亏损中仓位累计亏损金额 (USD)
+            </p>
+          </div>
+        </div>
+
+        {/* 投入本金 vs 当前估值 */}
+        <div className="glass-panel p-4 rounded-xl border border-slate-800">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-slate-400">总投入本金 ➔ 当前现值</span>
+            <span className="text-[10px] text-slate-400 font-mono">{positions?.length || 0} 笔活跃</span>
+          </div>
+          <div className="mt-2">
+            <div className="flex items-baseline space-x-2">
+              <h3 className="text-2xl font-bold font-mono text-white">
+                ${currentVal.toFixed(2)}
+              </h3>
+              <span className="text-xs text-slate-400 font-mono">
+                / 成本 ${totalCost.toFixed(2)}
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              单笔买入 10 USD，防重复开仓已生效
+            </p>
+          </div>
+        </div>
+
+        {/* 翻3倍已卖1.5倍已锁定纯利 */}
+        <div className="glass-panel p-4 rounded-xl border border-amber-500/30 bg-amber-500/5">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-amber-400 flex items-center space-x-1">
+              <Target className="h-4 w-4 text-amber-400" />
+              <span>翻3倍已锁定落袋收益</span>
+            </span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono">
+              无风险本利
+            </span>
+          </div>
+          <div className="mt-2">
+            <h3 className="text-2xl font-bold font-mono text-amber-400">
+              +${realizedProfit.toFixed(2)}
+            </h3>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              达 3x 时已卖出 15U（收回 10U 本金 + 净赚 5U）
+            </p>
+          </div>
+        </div>
+
+        {/* 综合总净回报 */}
+        <div className={`glass-panel p-4 rounded-xl border ${
+          netTotalPnl >= 0 ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-rose-500/30 bg-rose-500/5'
+        }`}>
+          <div className="flex items-center justify-between">
+            <span className={`text-xs font-semibold ${netTotalPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+              综合总盈亏 (浮动 + 落袋)
+            </span>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
+              netTotalPnl >= 0 ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'
+            }`}>
+              {summary?.overallPnlRatio >= 0 ? '+' : ''}{summary?.overallPnlRatio?.toFixed(2) || '0.00'}%
+            </span>
+          </div>
+          <div className="mt-2">
+            <h3 className={`text-2xl font-bold font-mono ${netTotalPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+              {netTotalPnl >= 0 ? `+$${netTotalPnl.toFixed(2)}` : `-$${Math.abs(netTotalPnl).toFixed(2)}`}
+            </h3>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              跌50%清仓止损保护本金，防极端归零
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* 策略规则看板 */}
       <div className="glass-panel rounded-2xl p-5 border border-slate-800/80">
         <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
@@ -112,7 +210,7 @@ export default function PaperTrading({ positions, onClosePosition, onManualBuy }
       <div className="glass-panel rounded-2xl p-4 border border-slate-800/80 flex flex-col md:flex-row items-center justify-between gap-4">
         <div>
           <h4 className="text-xs font-semibold text-slate-300">手动指定代币开仓</h4>
-          <p className="text-[11px] text-slate-500">输入任意 Solana 代币 CA，以当时实时 MC 买入 10U 并纳入策略监控。</p>
+          <p className="text-[11px] text-slate-500">输入任意 Solana 代币 CA，以官方 GMGN 实时精准 MC 买入 10U 并纳入策略监控。</p>
         </div>
         <form onSubmit={handleManualBuySubmit} className="flex items-center space-x-2 w-full md:w-auto">
           <input
@@ -140,8 +238,9 @@ export default function PaperTrading({ positions, onClosePosition, onManualBuy }
             <h4 className="text-sm font-semibold text-white">活跃持仓列表 (Active Positions)</h4>
             <span className="text-xs text-slate-400">({positions?.length || 0} 笔)</span>
           </div>
-          <div className="text-xs text-slate-400">
-            DexScreener 实时刷新: <span className="text-brand-green font-mono">5秒/次</span>
+          <div className="text-xs text-slate-400 flex items-center space-x-1.5">
+            <span>官方 GMGN API 精准刷新:</span>
+            <span className="text-brand-green font-mono font-bold">5秒/次</span>
           </div>
         </div>
 
@@ -152,7 +251,7 @@ export default function PaperTrading({ positions, onClosePosition, onManualBuy }
             </div>
             <h4 className="text-sm font-semibold text-slate-200">暂无模拟持仓</h4>
             <p className="text-xs text-slate-400 mt-1">
-              当获利钱包买入新代币时，系统将自动买入 10U 并记录入场 MC。
+              当获利钱包买入新代币时，系统将自动买入 10U 并记录入场基准 MC。
             </p>
           </div>
         ) : (
@@ -163,9 +262,9 @@ export default function PaperTrading({ positions, onClosePosition, onManualBuy }
                   <th className="py-3 px-4">代币 / CA</th>
                   <th className="py-3 px-4">开仓本金</th>
                   <th className="py-3 px-4">入场基准 MC</th>
-                  <th className="py-3 px-4">当前实时 MC</th>
-                  <th className="py-3 px-4">浮动收益率 (P&L %)</th>
+                  <th className="py-3 px-4">当前 GMGN 市值 (MC)</th>
                   <th className="py-3 px-4">当前仓位价值</th>
+                  <th className="py-3 px-4">当前净盈亏额 (USD)</th>
                   <th className="py-3 px-4">策略执行状态</th>
                   <th className="py-3 px-4 text-right">操作</th>
                 </tr>
@@ -174,15 +273,11 @@ export default function PaperTrading({ positions, onClosePosition, onManualBuy }
                 {positions.map((pos) => {
                   const isProfit = (pos.current_pnl_ratio || 0) >= 0;
                   const shortCA = pos.token_address ? `${pos.token_address.slice(0, 6)}...${pos.token_address.slice(-4)}` : '';
-                  const currentValue = (pos.entry_amount || 10) * (1 + (pos.current_pnl_ratio || 0) / 100) * (pos.has_taken_profit_3x ? 0.5 : 1.0);
+                  const cost = pos.entry_amount || 10;
+                  const remainingRatio = pos.has_taken_profit_3x ? 0.5 : 1.0;
+                  const currentValue = cost * (1 + (pos.current_pnl_ratio || 0) / 100) * remainingRatio;
+                  const pnlUsd = currentValue - (pos.has_taken_profit_3x ? 0 : cost);
                   const isCopied = copiedCA === pos.id;
-
-                  let milestones = [];
-                  try {
-                    milestones = JSON.parse(pos.reached_milestones || '[]');
-                  } catch (e) {
-                    milestones = [];
-                  }
 
                   return (
                     <tr key={pos.id} className="hover:bg-slate-800/30 transition">
@@ -210,7 +305,7 @@ export default function PaperTrading({ positions, onClosePosition, onManualBuy }
 
                       {/* 开仓本金 */}
                       <td className="py-3.5 px-4 font-mono text-slate-200">
-                        ${pos.entry_amount?.toFixed(2) || '10.00'}
+                        ${cost.toFixed(2)}
                       </td>
 
                       {/* 入场市值 */}
@@ -218,23 +313,11 @@ export default function PaperTrading({ positions, onClosePosition, onManualBuy }
                         {formatMC(pos.entry_mc)}
                       </td>
 
-                      {/* 当前实时市值 */}
+                      {/* 当前 GMGN 精准市值 */}
                       <td className="py-3.5 px-4 font-mono font-bold text-white">
-                        <div className="flex items-center space-x-1">
+                        <div className="flex items-center space-x-1.5">
                           <span>{formatMC(pos.current_mc)}</span>
-                          <span className="h-1.5 w-1.5 rounded-full bg-brand-cyan animate-ping"></span>
-                        </div>
-                      </td>
-
-                      {/* 收益百分比 */}
-                      <td className="py-3.5 px-4">
-                        <div className={`inline-flex items-center space-x-1 px-2.5 py-1 rounded-full text-xs font-bold ${
-                          isProfit
-                            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 glow-green'
-                            : 'bg-rose-500/10 text-rose-400 border border-rose-500/30 glow-red'
-                        }`}>
-                          {isProfit ? <ArrowUpRight className="h-3.5 w-3.5" /> : <ArrowDownRight className="h-3.5 w-3.5" />}
-                          <span>{isProfit ? '+' : ''}{pos.current_pnl_ratio?.toFixed(2) || '0.00'}%</span>
+                          <span className="text-[9px] px-1 py-0.2 rounded bg-brand-cyan/20 text-brand-cyan font-normal">GMGN</span>
                         </div>
                       </td>
 
@@ -250,43 +333,48 @@ export default function PaperTrading({ positions, onClosePosition, onManualBuy }
                         </div>
                       </td>
 
+                      {/* 明确盈亏额 (USD) 与百分比 */}
+                      <td className="py-3.5 px-4">
+                        <div className="flex flex-col space-y-0.5">
+                          <span className={`font-mono font-bold text-sm ${pnlUsd >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {pnlUsd >= 0 ? `+$${pnlUsd.toFixed(2)}` : `-$${Math.abs(pnlUsd).toFixed(2)}`}
+                          </span>
+                          <span className={`text-[11px] font-semibold flex items-center ${isProfit ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {isProfit ? <ArrowUpRight className="h-3 w-3 mr-0.5" /> : <ArrowDownRight className="h-3 w-3 mr-0.5" />}
+                            {isProfit ? '+' : ''}{pos.current_pnl_ratio?.toFixed(2) || '0.00'}%
+                          </span>
+                        </div>
+                      </td>
+
                       {/* 策略状态 */}
                       <td className="py-3.5 px-4 space-y-1">
                         {pos.has_taken_profit_3x ? (
                           <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/30">
-                            🎯 3x已卖1.5倍 (零成本持有中)
+                            🎯 3x已卖1.5倍 (零成本持有)
                           </span>
                         ) : (
                           <span className="inline-block px-2 py-0.5 rounded text-[10px] font-normal bg-slate-800 text-slate-400">
-                            持有中 (目标 3x 卖出1.5倍)
+                            持有观察中 (目标 3x / 止损 -50%)
                           </span>
-                        )}
-
-                        {milestones.length > 0 && (
-                          <div className="flex items-center space-x-1">
-                            <span className="text-[10px] text-purple-400 font-mono">
-                              🏆 达成: {milestones.map(m => `${m}x`).join(', ')}
-                            </span>
-                          </div>
                         )}
                       </td>
 
                       {/* 操作 */}
-                      <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                      <td className="py-3.5 px-4 text-right">
                         <div className="flex items-center justify-end space-x-2">
                           <a
-                            href={`https://dexscreener.com/solana/${pos.token_address}`}
+                            href={`https://gmgn.ai/sol/token/${pos.token_address}`}
                             target="_blank"
-                            rel="noreferrer"
-                            className="p-1.5 rounded-lg bg-slate-800 text-slate-400 hover:text-white transition"
-                            title="在 DexScreener 查看 K 线"
+                            rel="noopener noreferrer"
+                            className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition"
+                            title="前往 GMGN 查看图表"
                           >
                             <ExternalLink className="h-3.5 w-3.5" />
                           </a>
                           <button
                             onClick={() => onClosePosition(pos.id)}
-                            className="px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 font-medium text-xs transition"
-                            title="模拟卖出平仓"
+                            className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-rose-500/15 text-rose-400 hover:bg-rose-500/25 border border-rose-500/30 transition"
+                            title="手动平仓"
                           >
                             平仓
                           </button>
