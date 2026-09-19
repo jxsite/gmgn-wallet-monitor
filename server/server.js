@@ -16,7 +16,10 @@ import {
   getAllPositions,
   getRecentAlerts,
   getAllSettings,
-  setSetting
+  setSetting,
+  updatePositionPrice,
+  updatePositionStrategy,
+  closePosition
 } from './db/database.js';
 import { tradingSimulator } from './services/tradingSimulator.js';
 import { monitorService } from './services/monitorService.js';
@@ -43,9 +46,10 @@ const io = new Server(server, {
   }
 });
 
-// 绑定 Socket 到监控引擎与模拟交易引擎
+// 绑定 Socket 到监控引擎、模拟交易引擎与电报服务
 tradingSimulator.setSocketServer(io);
 monitorService.setSocketServer(io);
+telegramService.setSocketServer(io);
 
 io.on('connection', (socket) => {
   console.log(`[Socket] 客户端已连接: ${socket.id}`);
@@ -55,7 +59,8 @@ io.on('connection', (socket) => {
     alerts: getRecentAlerts(30),
     positions: getOpenPositions(),
     summary: tradingSimulator.getSummary(),
-    isMonitoring: monitorService.isRunning
+    isMonitoring: monitorService.isRunning,
+    telegramConfigured: telegramService.isConfigured()
   });
 
   socket.on('disconnect', () => {
@@ -151,6 +156,60 @@ app.post('/api/test/buy', async (req, res) => {
   res.json(result);
 });
 
+// 模拟策略触发测试 (用于快速测试 3倍止盈卖1.5倍、多阶梯里程碑、跌50%清仓)
+app.post('/api/test/strategy', async (req, res) => {
+  const { positionId, targetMultiplier } = req.body;
+  const positions = getOpenPositions();
+  const targetPos = positionId ? positions.find(p => p.id === parseInt(positionId)) : positions[0];
+  if (!targetPos) {
+    return res.status(400).json({ error: '暂无活跃持仓可用于策略测试，请先买入或点击测试买入' });
+  }
+
+  const mult = parseFloat(targetMultiplier || 3.0);
+  const newMc = targetPos.entry_mc * mult;
+  const newPrice = targetPos.entry_price * mult;
+  const pnlRatio = parseFloat(((mult - 1) * 100).toFixed(2));
+
+  // 1. 触发跌 50% 清仓
+  if (pnlRatio <= -50.0) {
+    closePosition(targetPos.id, 'STOP_LOSS_50');
+    await telegramService.sendStopLossAlert({
+      tokenSymbol: targetPos.token_symbol,
+      tokenAddress: targetPos.token_address,
+      entryMc: targetPos.entry_mc,
+      currentMc: newMc,
+      pnlRatio
+    });
+  }
+  // 2. 触发 3 倍卖 1.5 倍本金
+  else if (mult >= 3.0 && !targetPos.has_taken_profit_3x) {
+    updatePositionStrategy(targetPos.id, {
+      current_mc: newMc,
+      current_price: newPrice,
+      current_pnl_ratio: pnlRatio,
+      has_taken_profit_3x: 1,
+      realized_profit: (targetPos.realized_profit || 0) + 15.0
+    });
+    await telegramService.sendTakeProfit3xAlert({
+      tokenSymbol: targetPos.token_symbol,
+      tokenAddress: targetPos.token_address,
+      entryMc: targetPos.entry_mc,
+      currentMc: newMc,
+      pnlRatio
+    });
+  } else {
+    updatePositionPrice(targetPos.id, newMc, newPrice, pnlRatio);
+  }
+
+  io.emit('positions:update', getOpenPositions());
+  tradingSimulator.broadcastSummary();
+
+  res.json({
+    success: true,
+    message: `已模拟将代币 $${targetPos.token_symbol} 调整为 ${mult}x (MC: $${newMc.toLocaleString()})，并触发对应策略！`
+  });
+});
+
 // 切换监控引擎状态
 app.post('/api/monitor/toggle', (req, res) => {
   if (monitorService.isRunning) {
@@ -181,4 +240,7 @@ server.listen(PORT, () => {
   // 启动模拟价格刷新与监控轮询
   tradingSimulator.start(config.priceUpdateIntervalMs);
   monitorService.start(config.monitorIntervalMs);
+
+  // 启动 Telegram Chat ID 自动轮询捕获
+  telegramService.startAutoChatIdListener();
 });

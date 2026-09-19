@@ -51,6 +51,10 @@ export function initDatabase() {
       current_pnl_ratio REAL DEFAULT 0.0,
       status TEXT DEFAULT 'OPEN', -- 'OPEN' or 'CLOSED'
       trigger_wallet TEXT,
+      has_taken_profit_3x INTEGER DEFAULT 0, -- 是否已触发 3倍卖1.5倍本金
+      realized_profit REAL DEFAULT 0.0,     -- 已锁定落袋收益 (USD)
+      reached_milestones TEXT DEFAULT '[]', -- 已推送过的倍数里程碑 JSON 数组
+      close_reason TEXT DEFAULT '',         -- 平仓原因 (STOP_LOSS_50 / MANUAL / etc)
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
@@ -67,9 +71,17 @@ export function initDatabase() {
       amount_usd REAL,
       mc_at_event REAL,
       is_simulated INTEGER DEFAULT 0,
+      sim_status TEXT DEFAULT '',           -- 'SIMULATED' / 'ALREADY_HELD' (已持仓跳过)
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `);
+
+  // 动态补充字段以兼容已有旧数据库
+  try { db.exec("ALTER TABLE positions ADD COLUMN has_taken_profit_3x INTEGER DEFAULT 0"); } catch (e) {}
+  try { db.exec("ALTER TABLE positions ADD COLUMN realized_profit REAL DEFAULT 0.0"); } catch (e) {}
+  try { db.exec("ALTER TABLE positions ADD COLUMN reached_milestones TEXT DEFAULT '[]'"); } catch (e) {}
+  try { db.exec("ALTER TABLE positions ADD COLUMN close_reason TEXT DEFAULT ''"); } catch (e) {}
+  try { db.exec("ALTER TABLE alerts ADD COLUMN sim_status TEXT DEFAULT ''"); } catch (e) {}
 
   // 检查是否已有钱包，如果没有则导入 100 个种子钱包
   const countStmt = db.prepare('SELECT COUNT(*) as count FROM wallets');
@@ -85,6 +97,14 @@ export function initDatabase() {
       insertWallet.run(w.rank, w.address, w.label, w.winRate, w.profit7d, w.pnlRatio, w.tag);
     }
     console.log(`[DB] 已初始化导入 ${SEED_WALLETS.length} 个 GMGN Top 聪明钱钱包`);
+  }
+
+  // 写入用户指定的专属 Telegram Bot Token
+  const defaultToken = '8796135031:AAFYfOQ-MEGQ1WphjwMGGZjoxAwrthzYysk';
+  const currentToken = getSetting('telegram_bot_token');
+  if (!currentToken || currentToken.trim() === '') {
+    setSetting('telegram_bot_token', defaultToken);
+    console.log('[DB] 已自动配置 Telegram Bot Token: @lunacan3bot');
   }
 }
 
@@ -147,6 +167,12 @@ export function addCustomWallet(wallet) {
   );
 }
 
+// 检查某个代币是否已处于持仓中（去重防重复买入）
+export function hasOpenPositionForToken(tokenAddress) {
+  const row = db.prepare("SELECT COUNT(*) as count FROM positions WHERE token_address = ? AND status = 'OPEN'").get(tokenAddress);
+  return row ? row.count > 0 : false;
+}
+
 // 持仓与模拟交易
 export function getOpenPositions() {
   return db.prepare("SELECT * FROM positions WHERE status = 'OPEN' ORDER BY created_at DESC").all();
@@ -162,8 +188,8 @@ export function insertPosition(pos) {
       token_address, token_symbol, token_name, chain,
       entry_mc, entry_price, entry_amount,
       current_mc, current_price, current_pnl_ratio,
-      status, trigger_wallet
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?)
+      status, trigger_wallet, has_taken_profit_3x, realized_profit, reached_milestones
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, 0, 0.0, '[]')
   `);
   const info = stmt.run(
     pos.token_address,
@@ -190,13 +216,33 @@ export function updatePositionPrice(id, currentMc, currentPrice, currentPnlRatio
   return stmt.run(currentMc, currentPrice, currentPnlRatio, id);
 }
 
-export function closePosition(id) {
+export function updatePositionStrategy(id, updates) {
+  const fields = [];
+  const values = [];
+
+  if (updates.current_mc !== undefined) { fields.push('current_mc = ?'); values.push(updates.current_mc); }
+  if (updates.current_price !== undefined) { fields.push('current_price = ?'); values.push(updates.current_price); }
+  if (updates.current_pnl_ratio !== undefined) { fields.push('current_pnl_ratio = ?'); values.push(updates.current_pnl_ratio); }
+  if (updates.has_taken_profit_3x !== undefined) { fields.push('has_taken_profit_3x = ?'); values.push(updates.has_taken_profit_3x); }
+  if (updates.realized_profit !== undefined) { fields.push('realized_profit = ?'); values.push(updates.realized_profit); }
+  if (updates.reached_milestones !== undefined) { fields.push('reached_milestones = ?'); values.push(updates.reached_milestones); }
+  if (updates.status !== undefined) { fields.push('status = ?'); values.push(updates.status); }
+  if (updates.close_reason !== undefined) { fields.push('close_reason = ?'); values.push(updates.close_reason); }
+
+  fields.push('updated_at = CURRENT_TIMESTAMP');
+  values.push(id);
+
+  const stmt = db.prepare(`UPDATE positions SET ${fields.join(', ')} WHERE id = ?`);
+  return stmt.run(...values);
+}
+
+export function closePosition(id, reason = 'MANUAL') {
   const stmt = db.prepare(`
     UPDATE positions
-    SET status = 'CLOSED', updated_at = CURRENT_TIMESTAMP
+    SET status = 'CLOSED', close_reason = ?, updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `);
-  return stmt.run(id);
+  return stmt.run(reason, id);
 }
 
 // 警报记录
@@ -205,8 +251,8 @@ export function insertAlert(alert) {
     INSERT OR IGNORE INTO alerts (
       tx_hash, wallet_address, wallet_label,
       token_address, token_symbol, token_name,
-      side, amount_usd, mc_at_event, is_simulated
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      side, amount_usd, mc_at_event, is_simulated, sim_status
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   return stmt.run(
     alert.tx_hash,
@@ -218,7 +264,8 @@ export function insertAlert(alert) {
     alert.side,
     alert.amount_usd,
     alert.mc_at_event,
-    alert.is_simulated ? 1 : 0
+    alert.is_simulated ? 1 : 0,
+    alert.sim_status || (alert.is_simulated ? 'SIMULATED' : '')
   );
 }
 

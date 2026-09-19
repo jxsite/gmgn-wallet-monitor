@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { TrendingUp, ArrowUpRight, ArrowDownRight, ExternalLink, XCircle, DollarSign, Clock, Copy, Check, Zap } from 'lucide-react';
+import { TrendingUp, ArrowUpRight, ArrowDownRight, ExternalLink, DollarSign, Copy, Check, Zap, Target, ShieldAlert, Sparkles } from 'lucide-react';
+import axios from 'axios';
 
 function formatMC(val) {
   if (!val || isNaN(val)) return '$0';
@@ -13,6 +14,7 @@ export default function PaperTrading({ positions, onClosePosition, onManualBuy }
   const [copiedCA, setCopiedCA] = useState(null);
   const [customCA, setCustomCA] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [testStrategyMsg, setTestStrategyMsg] = useState('');
 
   const copyToClipboard = (text, id) => {
     navigator.clipboard.writeText(text);
@@ -29,25 +31,93 @@ export default function PaperTrading({ positions, onClosePosition, onManualBuy }
     setIsSubmitting(false);
   };
 
+  // 策略模拟快速触发测试
+  const handleTestStrategy = async (multiplier) => {
+    try {
+      const res = await axios.post('/api/test/strategy', { targetMultiplier: multiplier });
+      setTestStrategyMsg(res.data.message);
+      setTimeout(() => setTestStrategyMsg(''), 4000);
+    } catch (err) {
+      setTestStrategyMsg('策略测试失败: ' + (err.response?.data?.error || err.message));
+      setTimeout(() => setTestStrategyMsg(''), 4000);
+    }
+  };
+
   return (
     <div className="space-y-6">
-      {/* 模拟买入测试栏 */}
-      <div className="glass-panel rounded-2xl p-4 border border-slate-800/80 flex flex-col md:flex-row items-center justify-between gap-4">
-        <div>
-          <h3 className="text-sm font-semibold text-white flex items-center space-x-2">
-            <Zap className="h-4 w-4 text-brand-green" />
-            <span>10U 模拟跟单交易模块</span>
-          </h3>
-          <p className="text-xs text-slate-400 mt-0.5">
-            监控到 Top 100 钱包买入时自动同步买入 10 USD，记录当时 MC，并通过 DexScreener 每 5 秒实时刷新当前 MC 与收益率。
-          </p>
+      {/* 策略规则看板 */}
+      <div className="glass-panel rounded-2xl p-5 border border-slate-800/80">
+        <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+          <div>
+            <h3 className="text-sm font-bold text-white flex items-center space-x-2">
+              <Target className="h-4 w-4 text-brand-green" />
+              <span>当前执行自动化策略体系</span>
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-3 text-xs">
+              <div className="bg-dark-800/80 p-2.5 rounded-xl border border-slate-700/60">
+                <span className="text-brand-cyan font-semibold block">1. 严禁重复买入</span>
+                <span className="text-slate-400 text-[11px]">同代币 CA 已有持仓时，聪明钱再买入只记录流水，不重复扣款建仓。</span>
+              </div>
+              <div className="bg-dark-800/80 p-2.5 rounded-xl border border-slate-700/60">
+                <span className="text-amber-400 font-semibold block">2. 翻 3 倍卖 1.5 倍</span>
+                <span className="text-slate-400 text-[11px]">达 3x 时自动卖出 15U（收回 10U 本金 + 锁定 5U 利润），余下零成本永久持有。</span>
+              </div>
+              <div className="bg-dark-800/80 p-2.5 rounded-xl border border-slate-700/60">
+                <span className="text-purple-400 font-semibold block">3. 多阶梯暴涨推送</span>
+                <span className="text-slate-400 text-[11px]">达成 2x, 3x, 4x, 5x, 10x, 20x, 30x, 50x, 70x, 100x 时自动发送电报贺报。</span>
+              </div>
+              <div className="bg-dark-800/80 p-2.5 rounded-xl border border-slate-700/60">
+                <span className="text-rose-400 font-semibold block">4. 跌 50% 坚决清仓</span>
+                <span className="text-slate-400 text-[11px]">自开仓 MC 跌幅达 50% 立即触发止损全额清仓，果断斩断亏损。</span>
+              </div>
+            </div>
+          </div>
         </div>
 
-        {/* 手动输入 CA 开仓测试 */}
+        {/* 快捷测试按钮 */}
+        <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center space-x-2 text-xs">
+            <span className="text-slate-400">策略测试模拟器:</span>
+            <button
+              onClick={() => handleTestStrategy(3.0)}
+              className="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-[11px] font-medium transition"
+              title="模拟持仓直接暴涨至3x，检验卖出1.5倍本金并推TG"
+            >
+              ⚡ 模拟触发 3x 翻倍卖出
+            </button>
+            <button
+              onClick={() => handleTestStrategy(5.0)}
+              className="px-2.5 py-1 rounded-lg bg-purple-500/15 hover:bg-purple-500/25 text-purple-300 border border-purple-500/30 text-[11px] font-medium transition"
+              title="模拟持仓暴涨至5x，检验多倍里程碑提醒"
+            >
+              🔥 模拟触发 5x 里程碑
+            </button>
+            <button
+              onClick={() => handleTestStrategy(0.5)}
+              className="px-2.5 py-1 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-[11px] font-medium transition"
+              title="模拟持仓暴跌50%，检验直接清仓止损"
+            >
+              🛑 模拟触发 -50% 清仓
+            </button>
+          </div>
+          {testStrategyMsg && (
+            <span className="text-xs text-brand-green font-medium animate-pulse">
+              {testStrategyMsg}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* 手动输入 CA 开仓测试 */}
+      <div className="glass-panel rounded-2xl p-4 border border-slate-800/80 flex flex-col md:flex-row items-center justify-between gap-4">
+        <div>
+          <h4 className="text-xs font-semibold text-slate-300">手动指定代币开仓</h4>
+          <p className="text-[11px] text-slate-500">输入任意 Solana 代币 CA，以当时实时 MC 买入 10U 并纳入策略监控。</p>
+        </div>
         <form onSubmit={handleManualBuySubmit} className="flex items-center space-x-2 w-full md:w-auto">
           <input
             type="text"
-            placeholder="输入 Solana 代币合约 CA 手动模拟买入 10U"
+            placeholder="输入代币合约 CA 手动模拟买入 10U"
             value={customCA}
             onChange={(e) => setCustomCA(e.target.value)}
             className="bg-dark-800 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-brand-cyan w-full md:w-72 font-mono"
@@ -71,7 +141,7 @@ export default function PaperTrading({ positions, onClosePosition, onManualBuy }
             <span className="text-xs text-slate-400">({positions?.length || 0} 笔)</span>
           </div>
           <div className="text-xs text-slate-400">
-            刷新频次: <span className="text-brand-green font-mono">5秒/次</span>
+            DexScreener 实时刷新: <span className="text-brand-green font-mono">5秒/次</span>
           </div>
         </div>
 
@@ -82,7 +152,7 @@ export default function PaperTrading({ positions, onClosePosition, onManualBuy }
             </div>
             <h4 className="text-sm font-semibold text-slate-200">暂无模拟持仓</h4>
             <p className="text-xs text-slate-400 mt-1">
-              当获利钱包买入代币时，系统将自动买入 10U 并记录入场 MC。
+              当获利钱包买入新代币时，系统将自动买入 10U 并记录入场 MC。
             </p>
           </div>
         ) : (
@@ -92,11 +162,11 @@ export default function PaperTrading({ positions, onClosePosition, onManualBuy }
                 <tr>
                   <th className="py-3 px-4">代币 / CA</th>
                   <th className="py-3 px-4">开仓本金</th>
-                  <th className="py-3 px-4">开仓时 MC</th>
+                  <th className="py-3 px-4">入场基准 MC</th>
                   <th className="py-3 px-4">当前实时 MC</th>
-                  <th className="py-3 px-4">收益百分比 (P&L %)</th>
+                  <th className="py-3 px-4">浮动收益率 (P&L %)</th>
                   <th className="py-3 px-4">当前仓位价值</th>
-                  <th className="py-3 px-4">开仓时间</th>
+                  <th className="py-3 px-4">策略执行状态</th>
                   <th className="py-3 px-4 text-right">操作</th>
                 </tr>
               </thead>
@@ -104,9 +174,15 @@ export default function PaperTrading({ positions, onClosePosition, onManualBuy }
                 {positions.map((pos) => {
                   const isProfit = (pos.current_pnl_ratio || 0) >= 0;
                   const shortCA = pos.token_address ? `${pos.token_address.slice(0, 6)}...${pos.token_address.slice(-4)}` : '';
-                  const currentValue = (pos.entry_amount || 10) * (1 + (pos.current_pnl_ratio || 0) / 100);
+                  const currentValue = (pos.entry_amount || 10) * (1 + (pos.current_pnl_ratio || 0) / 100) * (pos.has_taken_profit_3x ? 0.5 : 1.0);
                   const isCopied = copiedCA === pos.id;
-                  const timeStr = pos.created_at ? new Date(pos.created_at).toLocaleTimeString() : '';
+
+                  let milestones = [];
+                  try {
+                    milestones = JSON.parse(pos.reached_milestones || '[]');
+                  } catch (e) {
+                    milestones = [];
+                  }
 
                   return (
                     <tr key={pos.id} className="hover:bg-slate-800/30 transition">
@@ -164,12 +240,35 @@ export default function PaperTrading({ positions, onClosePosition, onManualBuy }
 
                       {/* 当前估值 */}
                       <td className="py-3.5 px-4 font-mono font-bold text-slate-100">
-                        ${currentValue.toFixed(2)}
+                        <div>
+                          <span>${currentValue.toFixed(2)}</span>
+                          {pos.has_taken_profit_3x ? (
+                            <span className="text-[10px] block text-amber-400 font-normal">
+                              +已落袋 $15.00
+                            </span>
+                          ) : null}
+                        </div>
                       </td>
 
-                      {/* 开仓时间 */}
-                      <td className="py-3.5 px-4 text-slate-400 text-xs font-mono whitespace-nowrap">
-                        {timeStr}
+                      {/* 策略状态 */}
+                      <td className="py-3.5 px-4 space-y-1">
+                        {pos.has_taken_profit_3x ? (
+                          <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                            🎯 3x已卖1.5倍 (零成本持有中)
+                          </span>
+                        ) : (
+                          <span className="inline-block px-2 py-0.5 rounded text-[10px] font-normal bg-slate-800 text-slate-400">
+                            持有中 (目标 3x 卖出1.5倍)
+                          </span>
+                        )}
+
+                        {milestones.length > 0 && (
+                          <div className="flex items-center space-x-1">
+                            <span className="text-[10px] text-purple-400 font-mono">
+                              🏆 达成: {milestones.map(m => `${m}x`).join(', ')}
+                            </span>
+                          </div>
+                        )}
                       </td>
 
                       {/* 操作 */}

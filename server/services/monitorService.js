@@ -127,6 +127,9 @@ export class MonitorService {
     const finalSymbol = marketData?.symbol || token_symbol || 'UNKNOWN';
     const finalName = marketData?.name || token_name || 'Token';
 
+    // 核心需求1：检查当前是否已有该代币持仓（防止重复买入）
+    const isAlreadyHeld = tradingSimulator.hasOpenPosition(token_address);
+
     // 2. 存入警报表
     const alertRecord = {
       tx_hash,
@@ -138,7 +141,8 @@ export class MonitorService {
       side: 'BUY',
       amount_usd: amount_usd || 1000,
       mc_at_event: mc,
-      is_simulated: 1,
+      is_simulated: isAlreadyHeld ? 0 : 1,
+      sim_status: isAlreadyHeld ? 'ALREADY_HELD' : 'SIMULATED',
       created_at: new Date().toISOString()
     };
     insertAlert(alertRecord);
@@ -148,14 +152,18 @@ export class MonitorService {
       this.io.emit('alert:new', alertRecord);
     }
 
-    // 4. 执行模拟交易（自动买入 10U）
-    const position = await tradingSimulator.executeSimulatedBuy({
-      tokenAddress: token_address,
-      tokenSymbol: finalSymbol,
-      tokenName: finalName,
-      triggerWallet: wallet_address,
-      buyAmountUsd: 10.0
-    });
+    // 4. 执行模拟交易（如已持仓则跳过，杜绝重复买入）
+    if (!isAlreadyHeld) {
+      await tradingSimulator.executeSimulatedBuy({
+        tokenAddress: token_address,
+        tokenSymbol: finalSymbol,
+        tokenName: finalName,
+        triggerWallet: wallet_address,
+        buyAmountUsd: 10.0
+      });
+    } else {
+      console.log(`[Monitor] 🛡️ 策略保护生效: 代币 $${finalSymbol} 已在持仓中，已记录信号但不重复开仓`);
+    }
 
     // 5. 推送 Telegram 通知
     await telegramService.sendBuyAlert({
@@ -167,6 +175,7 @@ export class MonitorService {
       buyAmountUsd: amount_usd,
       marketCap: mc,
       simulatedBuyAmount: 10.0,
+      isDuplicate: isAlreadyHeld,
       txHash: tx_hash
     });
   }

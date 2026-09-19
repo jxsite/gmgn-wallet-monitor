@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ExternalLink, Copy, Check, TrendingUp, DollarSign, Wallet } from 'lucide-react';
+import { ExternalLink, Copy, Check, TrendingUp, DollarSign, Wallet, ShieldCheck } from 'lucide-react';
 
 function formatMC(val) {
   if (!val || isNaN(val)) return '$0';
@@ -40,7 +40,10 @@ export default function LiveSignals({ alerts }) {
           <h3 className="text-sm font-semibold text-white">实时买入信号流 (Live Feed)</h3>
           <span className="text-xs text-slate-400">({alerts.length} 条记录)</span>
         </div>
-        <div className="text-xs text-brand-cyan">已自动触发 10U 模拟买入</div>
+        <div className="text-xs text-brand-cyan flex items-center space-x-1">
+          <ShieldCheck className="h-3.5 w-3.5 text-brand-green" />
+          <span>防重复买入机制已生效 (同币种仅持仓1笔)</span>
+        </div>
       </div>
 
       <div className="overflow-x-auto">
@@ -52,7 +55,7 @@ export default function LiveSignals({ alerts }) {
               <th className="py-3 px-4">代币 / 合约地址 (CA)</th>
               <th className="py-3 px-4">钱包买入金额</th>
               <th className="py-3 px-4">代币市值 (MC)</th>
-              <th className="py-3 px-4">模拟状态</th>
+              <th className="py-3 px-4">跟单状态</th>
               <th className="py-3 px-4 text-right">快捷通道</th>
             </tr>
           </thead>
@@ -62,6 +65,7 @@ export default function LiveSignals({ alerts }) {
               const shortCA = item.token_address ? `${item.token_address.slice(0, 6)}...${item.token_address.slice(-4)}` : '';
               const isCopied = copiedCA === item.id;
               const timeStr = item.created_at ? new Date(item.created_at).toLocaleTimeString() : '';
+              const isDuplicate = item.sim_status === 'ALREADY_HELD';
 
               return (
                 <tr key={item.id || idx} className="hover:bg-slate-800/30 transition">
@@ -117,9 +121,15 @@ export default function LiveSignals({ alerts }) {
 
                   {/* 模拟状态 */}
                   <td className="py-3.5 px-4 whitespace-nowrap">
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-brand-cyan/10 text-brand-cyan border border-brand-cyan/20">
-                      10U 同步买入
-                    </span>
+                    {isDuplicate ? (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-500/10 text-amber-400 border border-amber-500/30">
+                        已有持仓(跳过重复买)
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-brand-cyan/10 text-brand-cyan border border-brand-cyan/20">
+                        10U 同步买入
+                      </span>
+                    )}
                   </td>
 
                   {/* 快捷链接 */}
